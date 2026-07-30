@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Phoebo atlas inspector</title>
+    <link rel="stylesheet" href="/dev/atlas-inspector.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Phoebo atlas inspector</h1>
+      <p id="status" role="status">Loading and validating the bundled atlas…</p>
+      <pre id="report" aria-label="Atlas inspection report"></pre>
+      <canvas id="contact-sheet" aria-label="All configured Phoebo atlas frames"></canvas>
+      <canvas id="renderer-probe" width="192" height="208" aria-hidden="true"></canvas>
+    </main>
+    <script type="module" src="/dev/atlas-inspector.ts"></script>
+  </body>
+</html>

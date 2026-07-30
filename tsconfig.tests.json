@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": [],
+    "noEmit": false,
+    "rootDir": ".",
+    "outDir": ".tooling/test-dist"
+  },
+  "include": [
+    "src/animation/**/*.ts",
+    "src/config/animation-profiles/*.json",
+    "src/pet/pet-skin.ts",
+    "src/rendering/**/*.ts",
+    "tests/**/*.ts"
+  ]
+}

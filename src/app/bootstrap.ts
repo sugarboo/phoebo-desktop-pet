@@ -1,13 +1,18 @@
 import { startPetWindowDragging, showPetWindow } from "../platform/tauri-desktop-window";
-import { drawShellPlaceholder } from "../rendering/placeholder-renderer";
+import { CanvasPetRenderer } from "../rendering/canvas-pet-renderer";
+import { observeDevicePixelRatio } from "../rendering/device-pixel-ratio-monitor";
+import { loadDefaultPetAssets } from "./load-default-pet";
 
 const CANVAS_SELECTOR = "#pet-canvas";
 
 export async function bootstrapDesktopShell(): Promise<void> {
   try {
     const canvas = requirePetCanvas();
+    const loadedPet = await loadDefaultPetAssets();
+    const renderer = new CanvasPetRenderer(canvas, loadedPet.animationProfile.atlas);
 
-    drawShellPlaceholder(canvas);
+    renderer.renderFrame(loadedPet.atlas, loadedPet.animationProfile.atlas.neutralFrame);
+    installPixelRatioRedraw(renderer, loadedPet);
     installWindowDragging(canvas);
     await showPetWindow();
   } catch (error: unknown) {
@@ -23,6 +28,21 @@ function requirePetCanvas(): HTMLCanvasElement {
   }
 
   return canvas;
+}
+
+function installPixelRatioRedraw(
+  renderer: CanvasPetRenderer,
+  loadedPet: Awaited<ReturnType<typeof loadDefaultPetAssets>>,
+): void {
+  const stopObserving = observeDevicePixelRatio(() => {
+    try {
+      renderer.renderFrame(loadedPet.atlas, loadedPet.animationProfile.atlas.neutralFrame);
+    } catch (error: unknown) {
+      reportShellErrorOnce("pixel-ratio-redraw", error);
+    }
+  });
+
+  window.addEventListener("pagehide", stopObserving, { once: true });
 }
 
 function installWindowDragging(canvas: HTMLCanvasElement): void {
@@ -49,4 +69,3 @@ function reportShellErrorOnce(operation: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`[desktop-shell:${operation}] ${message}`);
 }
-

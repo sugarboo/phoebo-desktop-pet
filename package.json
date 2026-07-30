@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.tests.json && node .tooling/test-dist/tests/run-tests.js",
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri"
   },
@@ -21,4 +22,3 @@
     "vite": "^6.0.3"
   }
 }
-

@@ -1,0 +1,55 @@
+:root {
+  color: #ecf6f8;
+  background: #122027;
+  font-family: "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  min-width: max-content;
+}
+
+main {
+  padding: 24px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+}
+
+#status {
+  margin: 0 0 12px;
+}
+
+#status[data-state="passed"] {
+  color: #8df0b2;
+}
+
+#status[data-state="failed"] {
+  color: #ff9d9d;
+}
+
+#report {
+  width: 720px;
+  box-sizing: border-box;
+  margin: 0 0 18px;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid #41616c;
+  border-radius: 6px;
+  color: #d8edf2;
+  background: #0b171c;
+  font: 13px/1.45 Consolas, monospace;
+}
+
+#contact-sheet {
+  display: block;
+  background: #0b171c;
+}
+
+#renderer-probe {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+}
