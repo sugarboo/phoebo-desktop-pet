@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.npm-cache/
+.cargo-cache/
+.tooling/
+
+src-tauri/target/
+src-tauri/gen/
+
+*.log

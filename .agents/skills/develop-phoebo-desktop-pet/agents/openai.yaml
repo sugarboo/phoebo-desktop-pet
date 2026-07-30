@@ -1,0 +1,4 @@
+interface:
+  display_name: "Develop Phoebo Desktop Pet"
+  short_description: "Plan, build, and validate the lightweight Phoebo desktop pet"
+  default_prompt: "Use $develop-phoebo-desktop-pet to plan and implement the next verified Phoebo desktop-pet milestone."
