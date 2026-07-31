@@ -14,6 +14,11 @@ export interface CanvasMetrics {
   readonly scaleY: number;
 }
 
+export interface LogicalCanvasSize {
+  readonly width: number;
+  readonly height: number;
+}
+
 export type PixelRatioSource = () => number;
 
 const readWindowPixelRatio: PixelRatioSource = () => window.devicePixelRatio;
@@ -27,10 +32,15 @@ export class CanvasPetRenderer {
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly atlasGeometry: AtlasGeometry,
+    logicalSize: LogicalCanvasSize,
     private readonly pixelRatioSource: PixelRatioSource = readWindowPixelRatio,
   ) {
-    this.logicalWidth = atlasGeometry.frameWidth;
-    this.logicalHeight = atlasGeometry.frameHeight;
+    // The destination viewport comes from product configuration; atlas
+    // frameWidth/frameHeight remain the independent source crop geometry.
+    this.logicalWidth = logicalSize.width;
+    this.logicalHeight = logicalSize.height;
+    assertPositiveInteger("logicalSize.width", this.logicalWidth);
+    assertPositiveInteger("logicalSize.height", this.logicalHeight);
 
     // Alpha must remain enabled because the Tauri window itself is transparent;
     // transparent Canvas pixels reveal the desktop behind Phoebo.

@@ -62,10 +62,10 @@ test("selects exact weighted intervals with injected random samples", () => {
   assertEqual(timing.maximumTimerCount, 1);
 });
 
-test("samples the configured idle-delay range before selecting an action", () => {
+test("resamples the configured idle-delay range after each completed action", () => {
   const profile = createTestProfile([action("wave", 1)], 100, 500);
   const timing = new FakeBehaviorTiming();
-  const random = new SequenceRandomSource([0.25, 0]);
+  const random = new SequenceRandomSource([0.25, 0, 0.5]);
   const selections: BehaviorActionSelection[] = [];
   const scheduler = new BehaviorScheduler(
     profile,
@@ -82,6 +82,10 @@ test("samples the configured idle-delay range before selecting an action", () =>
   assertEqual(selections[0]?.action.clipId, "wave");
   assertEqual(scheduler.status, "action-pending");
   assertEqual(random.readCount, 2);
+  assertEqual(scheduler.startAction(selections[0]!.selectionId), true);
+  assertEqual(scheduler.completeAction(selections[0]!.selectionId), true);
+  assertEqual(timing.nextTimerDelayMs, 300);
+  assertEqual(random.readCount, 3);
   assertEqual(timing.maximumTimerCount, 1);
 });
 
@@ -363,6 +367,28 @@ test("stop and dispose invalidate callbacks already dequeued by the browser", ()
   assertEqual(selections.length, 0);
   assertEqual(scheduler.status, "disposed");
   assertThrows(() => scheduler.start(), "has been disposed");
+});
+
+test("selection listener failure stops the scheduler before reporting", () => {
+  const timing = new FakeBehaviorTiming();
+  const fatalErrors: unknown[] = [];
+  const listenerError = new Error("selection listener failed");
+  const scheduler = new BehaviorScheduler(
+    createTestProfile([action("wave", 1)]),
+    () => {
+      throw listenerError;
+    },
+    dependencies(timing, new SequenceRandomSource([0])),
+    (error) => fatalErrors.push(error),
+  );
+
+  scheduler.start();
+  timing.fireNextTimer();
+
+  assertEqual(scheduler.status, "stopped");
+  assertEqual(scheduler.activeSelection, undefined);
+  assertEqual(timing.timerCount, 0);
+  assertDeepEqual(fatalErrors, [listenerError]);
 });
 
 function action(

@@ -18,9 +18,15 @@ import {
 export interface PetRuntimeDependencies {
   readonly animationTiming?: AnimationTiming;
   readonly behaviorScheduling?: BehaviorSchedulerDependencies;
+  readonly onFatalError?: ((error: unknown) => void) | undefined;
 }
 
-export type PetRuntimeStatus = "stopped" | "running" | "paused" | "disposed";
+export type PetRuntimeStatus =
+  | "stopped"
+  | "running"
+  | "paused"
+  | "failed"
+  | "disposed";
 export type PetRuntimePhase =
   | "idle"
   | "waiting-for-idle-boundary"
@@ -47,6 +53,7 @@ export class PetRuntime {
   private runtimeStatus: PetRuntimeStatus = "stopped";
   private runtimePhase: PetRuntimePhase = "idle";
   private activeSelection: BehaviorActionSelection | undefined;
+  private fatalErrorReported = false;
 
   constructor(
     private readonly animationProfile: AnimationProfile,
@@ -68,22 +75,24 @@ export class PetRuntime {
       animationProfile.atlas.neutralFrame,
       behaviorProfile.cadence.settleAfterActionMs,
     );
-    this.player =
-      dependencies.animationTiming === undefined
-        ? new AnimationPlayer(renderFrame)
-        : new AnimationPlayer(renderFrame, dependencies.animationTiming);
+    const onFatalError = (error: unknown): void => {
+      this.failClosed(error, dependencies.onFatalError);
+    };
+    this.player = new AnimationPlayer(
+      renderFrame,
+      dependencies.animationTiming,
+      { onFatalError },
+    );
 
     const onActionSelected = (selection: BehaviorActionSelection): void => {
       this.playSelectedAction(selection);
     };
-    this.scheduler =
-      dependencies.behaviorScheduling === undefined
-        ? new BehaviorScheduler(behaviorProfile, onActionSelected)
-        : new BehaviorScheduler(
-            behaviorProfile,
-            onActionSelected,
-            dependencies.behaviorScheduling,
-          );
+    this.scheduler = new BehaviorScheduler(
+      behaviorProfile,
+      onActionSelected,
+      dependencies.behaviorScheduling,
+      onFatalError,
+    );
   }
 
   get status(): PetRuntimeStatus {
@@ -264,9 +273,36 @@ export class PetRuntime {
     });
   }
 
+  private failClosed(
+    error: unknown,
+    reportFatalError: ((error: unknown) => void) | undefined,
+  ): void {
+    if (this.runtimeStatus === "disposed" || this.fatalErrorReported) {
+      return;
+    }
+
+    // Mark failed before disposing both owners. Any callback already dequeued by
+    // the browser then observes a terminal runtime state and cannot transition it.
+    this.fatalErrorReported = true;
+    this.runtimeStatus = "failed";
+    this.activeSelection = undefined;
+    this.scheduler.dispose();
+    this.player.dispose();
+
+    try {
+      reportFatalError?.(error);
+    } catch {
+      // The runtime is already fully stopped. Do not let diagnostics create a
+      // second failure path or re-arm work.
+    }
+  }
+
   private assertUsable(): void {
     if (this.runtimeStatus === "disposed") {
       throw new Error("PetRuntime has been disposed");
+    }
+    if (this.runtimeStatus === "failed") {
+      throw new Error("PetRuntime is failed");
     }
   }
 }

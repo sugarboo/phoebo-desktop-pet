@@ -392,6 +392,78 @@ test("a loop-boundary listener can replace the clip without stale work", () => {
   assertEqual(timing.nextTimerDelayMs, 80);
 });
 
+test("renderer failure stops all playback work and reports once", () => {
+  const timing = new FakeAnimationTiming();
+  const fatalErrors: unknown[] = [];
+  const renderError = new Error("renderer failed");
+  const player = new AnimationPlayer(
+    () => {
+      throw renderError;
+    },
+    timing,
+    {
+      onFatalError: (error) => fatalErrors.push(error),
+    },
+  );
+
+  player.playClip(LOOP_CLIP);
+  const failingRender = timing.captureNextAnimationFrame();
+  failingRender();
+  failingRender();
+
+  assertEqual(player.status, "stopped");
+  assertScheduling(timing, 0, 0);
+  assertDeepEqual(fatalErrors, [renderError]);
+});
+
+test("throwing playback callbacks fail closed without scheduled work", () => {
+  const boundaryTiming = new FakeAnimationTiming();
+  const boundaryErrors: unknown[] = [];
+  const boundaryError = new Error("boundary failed");
+  const boundaryPlayer = new AnimationPlayer(
+    () => undefined,
+    boundaryTiming,
+    { onFatalError: (error) => boundaryErrors.push(error) },
+  );
+
+  boundaryPlayer.playClip(LOOP_CLIP, {
+    onLoopBoundary: () => {
+      throw boundaryError;
+    },
+  });
+  boundaryTiming.flushAnimationFrame();
+  boundaryTiming.advanceTo(300);
+  boundaryTiming.fireNextTimer();
+  boundaryTiming.flushAnimationFrame();
+
+  assertEqual(boundaryPlayer.status, "stopped");
+  assertScheduling(boundaryTiming, 0, 0);
+  assertDeepEqual(boundaryErrors, [boundaryError]);
+
+  const completionTiming = new FakeAnimationTiming();
+  const completionErrors: unknown[] = [];
+  const completionError = new Error("completion failed");
+  const completionPlayer = new AnimationPlayer(
+    () => undefined,
+    completionTiming,
+    { onFatalError: (error) => completionErrors.push(error) },
+  );
+
+  completionPlayer.playClip(ONCE_CLIP, {
+    onComplete: () => {
+      throw completionError;
+    },
+  });
+  completionTiming.flushAnimationFrame();
+  completionTiming.advanceTo(200);
+  completionTiming.fireNextTimer();
+  completionTiming.flushAnimationFrame();
+
+  assertEqual(completionPlayer.status, "stopped");
+  assertScheduling(completionTiming, 0, 0);
+  assertDeepEqual(completionErrors, [completionError]);
+});
+
 function assertScheduling(
   timing: FakeAnimationTiming,
   expectedTimers: number,

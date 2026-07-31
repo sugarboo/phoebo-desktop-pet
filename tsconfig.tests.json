@@ -10,11 +10,16 @@
   },
   "include": [
     "src/animation/**/*.ts",
+    "src/app/deferred-redraw.ts",
+    "src/app/desktop-control-subscription.ts",
+    "src/app/disposer-stack.ts",
     "src/app/pet-runtime.ts",
+    "src/app/runtime-activity-controller.ts",
     "src/behavior/**/*.ts",
     "src/config/animation-profiles/*.json",
     "src/config/behaviors/*.json",
     "src/pet/pet-skin.ts",
+    "src/platform/desktop-window-adapter.ts",
     "src/rendering/**/*.ts",
     "tests/**/*.ts"
   ]

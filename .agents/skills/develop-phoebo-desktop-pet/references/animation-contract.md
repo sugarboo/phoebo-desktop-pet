@@ -152,8 +152,8 @@ Recommended shape:
   "id": "default",
   "defaultClipId": "idle",
   "idleDelayMs": {
-    "minimum": 12000,
-    "maximum": 30000
+    "minimum": 60000,
+    "maximum": 120000
   },
   "cadence": {
     "avoidImmediateRepeat": true,
@@ -206,7 +206,7 @@ Validate:
 Treat perceived rhythm as part of correctness, not incidental random tuning.
 
 - Sample the next idle delay only after the previous action has returned to `idle`.
-  Apply the same `12000–30000 ms` range before the first random action.
+  Apply the same `60000–120000 ms` range before the first random action.
 - When two or more actions are cooldown-eligible, temporarily exclude the most
   recently started action. Allow it when it is the only eligible action rather than
   stalling the scheduler.
@@ -243,6 +243,9 @@ Treat perceived rhythm as part of correctness, not incidental random tuning.
 
 - Decode the whole WebP once; do not split it into PNG frame files.
 - Use the nine-argument `drawImage` overload to crop a source cell.
+- Render the `192 × 208` source cell into a `120 × 130` logical-pixel
+  destination configured in `src/config/pet-viewport.json`. Keep these two size
+  contracts separate.
 - Clear the full backing canvas before drawing.
 - Calculate logical dimensions separately from backing-store dimensions.
 - Rebuild backing dimensions on device-pixel-ratio or scale changes.

@@ -1,38 +1,121 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    App, AppHandle, Manager,
+    App, AppHandle,
 };
 
-pub const MAIN_WINDOW_LABEL: &str = "main";
+use crate::desktop;
 
 const TRAY_ID: &str = "phoebo-tray";
 const MENU_SHOW_ID: &str = "pet-show";
 const MENU_HIDE_ID: &str = "pet-hide";
+const MENU_PAUSE_ID: &str = "behavior-pause";
+const MENU_RESET_POSITION_ID: &str = "position-reset";
+const MENU_ALWAYS_ON_TOP_ID: &str = "always-on-top-toggle";
 const MENU_QUIT_ID: &str = "app-quit";
 const TRAY_ICON_SIZE: u32 = 32;
 
-static SHELL_ERROR_REPORTED: AtomicBool = AtomicBool::new(false);
+static SHELL_ERROR_CATEGORIES_REPORTED: AtomicU8 = AtomicU8::new(0);
+
+#[derive(Clone, Copy)]
+pub(crate) enum ShellOperation {
+    Visibility = 1 << 0,
+    BehaviorPause = 1 << 1,
+    Position = 1 << 2,
+    AlwaysOnTop = 1 << 3,
+    TrayPresentation = 1 << 4,
+    Reachability = 1 << 5,
+}
+
+impl ShellOperation {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Visibility => "visibility",
+            Self::BehaviorPause => "behavior-pause",
+            Self::Position => "position",
+            Self::AlwaysOnTop => "always-on-top",
+            Self::TrayPresentation => "tray-presentation",
+            Self::Reachability => "reachability",
+        }
+    }
+}
 
 pub fn install(app: &mut App) -> tauri::Result<()> {
     // Menu IDs are stable machine-readable values; labels are only presentation.
     // Tauri routes the selected native menu item back through `on_menu_event`.
     let show_item = MenuItem::with_id(app, MENU_SHOW_ID, "Show", true, None::<&str>)?;
     let hide_item = MenuItem::with_id(app, MENU_HIDE_ID, "Hide", true, None::<&str>)?;
+    let pause_item = MenuItem::with_id(app, MENU_PAUSE_ID, "Pause Actions", true, None::<&str>)?;
+    let reset_position_item = MenuItem::with_id(
+        app,
+        MENU_RESET_POSITION_ID,
+        "Reset Position",
+        true,
+        None::<&str>,
+    )?;
+    let always_on_top_item = MenuItem::with_id(
+        app,
+        MENU_ALWAYS_ON_TOP_ID,
+        "Always on Top: On",
+        true,
+        None::<&str>,
+    )?;
     let quit_item = MenuItem::with_id(app, MENU_QUIT_ID, "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_item, &hide_item, &quit_item])?;
+    let menu = Menu::with_items(
+        app,
+        &[
+            &show_item,
+            &hide_item,
+            &pause_item,
+            &reset_position_item,
+            &always_on_top_item,
+            &quit_item,
+        ],
+    )?;
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(placeholder_tray_icon())
         .tooltip("Phoebo")
         .menu(&menu)
         .show_menu_on_left_click(true)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            MENU_SHOW_ID => set_main_window_visibility(app, true),
-            MENU_HIDE_ID => set_main_window_visibility(app, false),
+        .on_menu_event(move |app, event| match event.id().as_ref() {
+            MENU_SHOW_ID => run_shell_operation(
+                ShellOperation::Visibility,
+                desktop::set_main_window_visibility(app, true),
+            ),
+            MENU_HIDE_ID => run_shell_operation(
+                ShellOperation::Visibility,
+                desktop::set_main_window_visibility(app, false),
+            ),
+            MENU_PAUSE_ID => match desktop::toggle_behavior_paused(app) {
+                Ok(true) => run_shell_operation(
+                    ShellOperation::TrayPresentation,
+                    pause_item.set_text("Resume Actions"),
+                ),
+                Ok(false) => run_shell_operation(
+                    ShellOperation::TrayPresentation,
+                    pause_item.set_text("Pause Actions"),
+                ),
+                Err(error) => report_shell_error(ShellOperation::BehaviorPause, error),
+            },
+            MENU_RESET_POSITION_ID => run_shell_operation(
+                ShellOperation::Position,
+                desktop::reset_main_window_position_impl(app),
+            ),
+            MENU_ALWAYS_ON_TOP_ID => match desktop::toggle_always_on_top(app) {
+                Ok(true) => run_shell_operation(
+                    ShellOperation::TrayPresentation,
+                    always_on_top_item.set_text("Always on Top: On"),
+                ),
+                Ok(false) => run_shell_operation(
+                    ShellOperation::TrayPresentation,
+                    always_on_top_item.set_text("Always on Top: Off"),
+                ),
+                Err(error) => report_shell_error(ShellOperation::AlwaysOnTop, error),
+            },
             MENU_QUIT_ID => app.exit(0),
             _ => {}
         })
@@ -41,31 +124,34 @@ pub fn install(app: &mut App) -> tauri::Result<()> {
     Ok(())
 }
 
-fn set_main_window_visibility(app: &AppHandle, visible: bool) {
-    // The label comes from tauri.conf.json. Looking the window up on demand avoids
-    // storing native window handles in application-global mutable state.
-    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
-        report_shell_error("main window is unavailable");
-        return;
-    };
+#[tauri::command]
+pub fn report_runtime_failure(app: AppHandle) -> Result<(), String> {
+    let tray = app
+        .tray_by_id(TRAY_ID)
+        .ok_or_else(|| "Phoebo's recovery tray is unavailable".to_owned())?;
 
-    let result = if visible {
-        window.show()
-    } else {
-        window.hide()
-    };
+    // Release builds have no console window. A short native tooltip signals that
+    // loading failed while preserving a working menu and explicit Quit action.
+    tray.set_tooltip(Some(
+        "Phoebo stopped after an error — Quit remains available",
+    ))
+    .map_err(|_| "Could not update Phoebo's recovery tray".to_owned())
+}
 
+fn run_shell_operation(operation: ShellOperation, result: tauri::Result<()>) {
     if let Err(error) = result {
-        let operation = if visible { "show" } else { "hide" };
-        report_shell_error(format!("could not {operation} the main window: {error}"));
+        report_shell_error(operation, error);
     }
 }
 
-fn report_shell_error(message: impl std::fmt::Display) {
+pub(crate) fn report_shell_error(operation: ShellOperation, message: impl std::fmt::Display) {
     // A broken native operation could otherwise flood stderr on repeated tray
-    // clicks. One bounded diagnostic is enough while keeping the tray responsive.
-    if !SHELL_ERROR_REPORTED.swap(true, Ordering::Relaxed) {
-        eprintln!("[desktop-shell] {message}");
+    // clicks. Keep one diagnostic per fixed category so an early minor menu error
+    // cannot hide a later reachability or lifecycle failure.
+    let bit = operation as u8;
+    let previous = SHELL_ERROR_CATEGORIES_REPORTED.fetch_or(bit, Ordering::Relaxed);
+    if previous & bit == 0 {
+        eprintln!("[desktop-shell:{}] {message}", operation.label());
     }
 }
 

@@ -88,6 +88,7 @@ export class BehaviorScheduler {
     private readonly profile: BehaviorProfile,
     private readonly onActionSelected: BehaviorActionListener,
     private readonly dependencies: BehaviorSchedulerDependencies = browserDependencies,
+    private readonly onFatalError?: (error: unknown) => void,
   ) {}
 
   get status(): BehaviorSchedulerStatus {
@@ -305,7 +306,7 @@ export class BehaviorScheduler {
 
     // State is fully updated before notification. The listener may synchronously
     // confirm playback in a deterministic test or queue it in PetRuntime.
-    this.onActionSelected(selection);
+    this.notifyActionSelected(selection);
   }
 
   private withoutImmediateRepeatWhenPossible(
@@ -372,6 +373,30 @@ export class BehaviorScheduler {
   private nextGeneration(): number {
     this.generation += 1;
     return this.generation;
+  }
+
+  private notifyActionSelected(selection: BehaviorActionSelection): void {
+    try {
+      this.onActionSelected(selection);
+    } catch (error: unknown) {
+      // The application listener sits outside weighted-selection logic. Fail
+      // closed before reporting so an exception cannot strand action-pending state.
+      this.cancelPendingTimeout();
+      this.nextGeneration();
+      this.nextActionAtMs = undefined;
+      this.pausedState = undefined;
+      this.activeActionSelection = undefined;
+      this.schedulerStatus = "stopped";
+      if (this.onFatalError === undefined) {
+        throw error;
+      }
+      try {
+        this.onFatalError(error);
+      } catch {
+        // A reporter is outside scheduler ownership. The scheduler is already
+        // stopped; swallowing a second exception prevents an error loop.
+      }
+    }
   }
 
   private assertUsable(): void {

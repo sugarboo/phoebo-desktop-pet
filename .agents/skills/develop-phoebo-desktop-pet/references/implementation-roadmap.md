@@ -60,7 +60,7 @@ Produce the smallest running transparent Tauri window with a recoverable tray.
 - Scaffold Tauri 2 with Vite and vanilla strict TypeScript.
 - Use npm and commit only `package-lock.json`.
 - Remove demo UI, icons, styles, commands, and dependencies that are not required.
-- Configure a transparent, undecorated, initially hidden, non-resizable `192 × 208` logical window.
+- Configure a transparent, undecorated, initially hidden, non-resizable `120 × 130` logical window.
 - Create the tray and quit path before enabling taskbar hiding.
 - Add a transparent canvas and a temporary deterministic placeholder frame.
 - Configure the smallest practical Tauri capability set.
@@ -97,7 +97,7 @@ Render verified Phoebo frames correctly from the bundled WebP.
 - Atlas decode rejects incorrect dimensions.
 - Every frame stays within atlas bounds.
 - No adjacent-frame bleed, opaque rectangle, transparent fringe, or frame-position jitter is visible.
-- Default, 125%, 150%, and 200% display scaling remain crisp and correctly sized.
+- Default, 125%, 150%, 175%, and 200% display scaling remain crisp and correctly sized.
 - Production build includes one WebP atlas and no generated PNG frames.
 
 ## Milestone 3 — playback and behavior
@@ -136,7 +136,7 @@ calm and clip changes do not interrupt idle motion abruptly.
 ### Tasks
 
 - Implement the cadence and transition policy from `animation-contract.md`.
-- Upgrade the behavior profile to schema version 2 and use a `12000–30000 ms`
+- Upgrade the behavior profile to schema version 2 and use a `60000–120000 ms`
   default idle-delay range.
 - Suppress an immediate repeat when another cooldown-eligible action exists.
 - Let `AnimationPlayer` report an idle-loop boundary without importing behavior
@@ -147,7 +147,7 @@ calm and clip changes do not interrupt idle motion abruptly.
 
 ### Exit checks
 
-- The scheduler selects no action sooner than 12 seconds or later than 30 seconds
+- The scheduler selects no action sooner than 60 seconds or later than 120 seconds
   after idle is restored; boundary alignment adds no more than one idle-loop cycle.
 - The same action is not selected twice consecutively while another action is
   eligible.

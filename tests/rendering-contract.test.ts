@@ -1,6 +1,7 @@
 import animationProfileDocument from "../src/config/animation-profiles/codex-v2.animations.json" with {
   type: "json",
 };
+import petViewport from "../src/config/pet-viewport.json" with { type: "json" };
 import { parseAnimationProfile } from "../src/animation/profile-parser.js";
 import { validateDecodedAtlasDimensions } from "../src/rendering/atlas-loader.js";
 import {
@@ -55,24 +56,39 @@ test("rejects invalid source frame coordinates", () => {
   }
 });
 
-test("calculates the four required device-pixel-ratio backing stores", () => {
+test("calculates the five required device-pixel-ratio backing stores", () => {
   const expected = [
-    { ratio: 1, width: 192, height: 208 },
-    { ratio: 1.25, width: 240, height: 260 },
-    { ratio: 1.5, width: 288, height: 312 },
-    { ratio: 2, width: 384, height: 416 },
+    { ratio: 1, width: 120, height: 130 },
+    { ratio: 1.25, width: 150, height: 163 },
+    { ratio: 1.5, width: 180, height: 195 },
+    { ratio: 1.75, width: 210, height: 228 },
+    { ratio: 2, width: 240, height: 260 },
   ] as const;
 
   for (const entry of expected) {
-    const metrics = calculateCanvasMetrics(192, 208, entry.ratio);
+    const metrics = calculateCanvasMetrics(
+      petViewport.width,
+      petViewport.height,
+      entry.ratio,
+    );
     assertMetrics(metrics, entry.ratio, entry.width, entry.height);
   }
 });
 
 test("falls back to DPR 1 for invalid ratios", () => {
   for (const invalidRatio of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
-    assertMetrics(calculateCanvasMetrics(192, 208, invalidRatio), 1, 192, 208);
+    assertMetrics(
+      calculateCanvasMetrics(petViewport.width, petViewport.height, invalidRatio),
+      1,
+      petViewport.width,
+      petViewport.height,
+    );
   }
+});
+
+test("rejects invalid logical viewport dimensions independently of atlas geometry", () => {
+  assertThrows(() => calculateCanvasMetrics(0, petViewport.height, 1), "logicalWidth");
+  assertThrows(() => calculateCanvasMetrics(petViewport.width, 130.5, 1), "logicalHeight");
 });
 
 test("rejects decoded atlases with either incorrect dimension", () => {
@@ -137,6 +153,25 @@ test("redraws once per changed DPR and releases every listener", () => {
   assertEqual(resizeUnsubscribeCount, 1);
 });
 
+test("DPR observer rolls back its first listener when setup fails", () => {
+  let resolutionUnsubscribeCount = 0;
+  const environment: DevicePixelRatioEnvironment = {
+    readPixelRatio: () => 1,
+    subscribeToResolution: () => () => {
+      resolutionUnsubscribeCount += 1;
+    },
+    subscribeToResize: () => {
+      throw new Error("resize subscription failed");
+    },
+  };
+
+  assertThrows(
+    () => observeDevicePixelRatio(() => undefined, environment),
+    "resize subscription failed",
+  );
+  assertEqual(resolutionUnsubscribeCount, 1);
+});
+
 function assertMetrics(
   metrics: CanvasMetrics,
   pixelRatio: number,
@@ -146,6 +181,6 @@ function assertMetrics(
   assertEqual(metrics.pixelRatio, pixelRatio);
   assertEqual(metrics.backingWidth, backingWidth);
   assertEqual(metrics.backingHeight, backingHeight);
-  assertEqual(metrics.scaleX, backingWidth / 192);
-  assertEqual(metrics.scaleY, backingHeight / 208);
+  assertEqual(metrics.scaleX, backingWidth / petViewport.width);
+  assertEqual(metrics.scaleY, backingHeight / petViewport.height);
 }

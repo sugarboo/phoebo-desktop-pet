@@ -48,7 +48,8 @@ phoebo-desktop-pet/
 │  │  └─ behavior-scheduler.ts
 │  ├─ config/
 │  │  ├─ animation-profiles/codex-v2.animations.json
-│  │  └─ behaviors/default.behavior.json
+│  │  ├─ behaviors/default.behavior.json
+│  │  └─ pet-viewport.json
 │  ├─ pet/
 │  │  ├─ pet-skin.ts
 │  │  └─ pet-state.ts
@@ -215,7 +216,14 @@ Use a generation token or cancellation handle so a stale timeout or completion c
 
 ## Tauri window and tray policy
 
-Start with a logical content size matching one atlas cell: `192 × 208`. Permit a centralized scale factor later.
+Use a `120 × 130` logical content size. Crop the original `192 × 208` atlas
+cell as the source rectangle and scale it into that smaller destination; do not
+rewrite the Codex v2 atlas geometry to resize the desktop window.
+
+On Windows, set the Tauri window's minimum and maximum dimensions to the same
+`120 × 130` values even though resizing is disabled. Tao otherwise inherits the
+system minimum tracking width, which can silently widen a small native window
+and leave a transparent strip beside the Canvas.
 
 Recommended initial window behavior:
 

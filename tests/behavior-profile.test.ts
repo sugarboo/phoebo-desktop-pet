@@ -24,7 +24,7 @@ test("parses the default behavior profile and keeps tuning outside executable co
   assertEqual(profile.schemaVersion, 2);
   assertEqual(profile.id, "default");
   assertEqual(profile.defaultClipId, "idle");
-  assertDeepEqual(profile.idleDelayMs, { minimum: 12000, maximum: 30000 });
+  assertDeepEqual(profile.idleDelayMs, { minimum: 60000, maximum: 120000 });
   assertDeepEqual(profile.cadence, {
     avoidImmediateRepeat: true,
     settleBeforeActionMs: 120,
@@ -48,7 +48,7 @@ test("parses the default behavior profile and keeps tuning outside executable co
 
 test("rejects invalid behavior timing and weights with exact field paths", () => {
   const reversedDelay = structuredClone(behaviorProfileDocument);
-  reversedDelay.idleDelayMs.minimum = 31000;
+  reversedDelay.idleDelayMs.minimum = 120001;
   assertThrows(
     () => parseBehaviorProfile(reversedDelay as unknown, animationProfile),
     "behaviorProfile.idleDelayMs.maximum",

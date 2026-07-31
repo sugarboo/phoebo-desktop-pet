@@ -8,6 +8,7 @@ import type { AnimationTiming } from "../src/animation/animation-player.js";
 import type { AtlasFrame } from "../src/animation/animation-profile.js";
 import { parseAnimationProfile } from "../src/animation/profile-parser.js";
 import { PetRuntime } from "../src/app/pet-runtime.js";
+import { RuntimeActivityController } from "../src/app/runtime-activity-controller.js";
 import type { BehaviorProfile } from "../src/behavior/behavior-profile.js";
 import type {
   Clock,
@@ -212,6 +213,44 @@ test("captured settle callbacks cannot revive work after disposal", () => {
   assertEqual(frameEnvironment.animationFrameCount, 0);
 });
 
+test("native hide and owner pause keep the real runtime free of scheduled work", () => {
+  const environment = new FakeRuntimeEnvironment();
+  const runtime = createRuntime(
+    createBehaviorProfile(500),
+    environment,
+    new SequenceRandomSource([0]),
+    () => undefined,
+  );
+  const activity = new RuntimeActivityController(runtime);
+
+  runtime.start();
+  activity.setNativeWindowVisible(true);
+  activity.activate();
+  activity.setNativeWindowVisible(false);
+
+  assertEqual(runtime.status, "paused");
+  assertEqual(environment.timerCount, 0);
+  assertEqual(environment.animationFrameCount, 0);
+
+  activity.setBehaviorPausedByUser(true);
+  activity.setNativeWindowVisible(true);
+  assertEqual(runtime.status, "paused");
+  assertEqual(environment.timerCount, 0);
+  assertEqual(environment.animationFrameCount, 0);
+
+  activity.setBehaviorPausedByUser(false);
+  assertEqual(runtime.status, "running");
+  assert(
+    environment.timerCount > 0 || environment.animationFrameCount > 0,
+    "Resuming should restore bounded player or scheduler work",
+  );
+
+  activity.deactivate();
+  runtime.dispose();
+  assertEqual(environment.timerCount, 0);
+  assertEqual(environment.animationFrameCount, 0);
+});
+
 test("runs thirty virtual minutes without a stuck action or multiplied callbacks", () => {
   const behaviorProfile = parseBehaviorProfile(
     behaviorProfileDocument as unknown,
@@ -237,7 +276,11 @@ test("runs thirty virtual minutes without a stuck action or multiplied callbacks
 
   assertEqual(runtime.status, "running");
   assert(observer.renderCount > 1_000, "Soak should exercise many frame boundaries");
-  assert(observer.actionStarts > 40, "Soak should exercise many random actions");
+  // A 60–120 second cadence intentionally produces far fewer actions than the
+  // earlier rapid profile, but a thirty-minute virtual soak still covers many
+  // complete idle -> action -> idle transitions.
+  assert(observer.actionStarts > 10, "Soak should exercise repeated random actions");
+  assert(observer.actionStarts < 30, "No action may start more often than once per minute");
   assertEqual(observer.actionCompletions, observer.actionStarts);
   assert(environment.maximumTimerCount <= 2, "Timers must remain bounded at two");
   assertEqual(environment.maximumAnimationFrameCount, 1);
@@ -246,6 +289,32 @@ test("runs thirty virtual minutes without a stuck action or multiplied callbacks
   runtime.dispose();
   assertEqual(environment.timerCount, 0);
   assertEqual(environment.animationFrameCount, 0);
+});
+
+test("runtime rendering failure disposes all work before reporting once", () => {
+  const environment = new FakeRuntimeEnvironment();
+  const fatalErrors: unknown[] = [];
+  const renderError = new Error("Canvas draw failed");
+  const runtime = createRuntime(
+    createBehaviorProfile(500),
+    environment,
+    new SequenceRandomSource([0]),
+    () => {
+      throw renderError;
+    },
+    (error) => fatalErrors.push(error),
+  );
+
+  runtime.start();
+  const staleBehaviorTimeout = environment.captureNextTimer();
+  environment.runNextEvent();
+  staleBehaviorTimeout();
+
+  assertEqual(runtime.status, "failed");
+  assertEqual(environment.timerCount, 0);
+  assertEqual(environment.animationFrameCount, 0);
+  assertDeepEqual(fatalErrors, [renderError]);
+  assertThrows(() => runtime.start(), "PetRuntime is failed");
 });
 
 function createBehaviorProfile(
@@ -285,6 +354,7 @@ function createRuntime(
   environment: FakeRuntimeEnvironment,
   randomSource: RandomSource,
   renderFrame: (frame: AtlasFrame) => void,
+  onFatalError?: (error: unknown) => void,
 ): PetRuntime {
   return new PetRuntime(animationProfile, behaviorProfile, renderFrame, {
     animationTiming: environment,
@@ -293,6 +363,7 @@ function createRuntime(
       randomSource,
       timers: environment,
     },
+    onFatalError,
   });
 }
 

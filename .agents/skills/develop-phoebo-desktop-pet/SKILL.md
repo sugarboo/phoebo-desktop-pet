@@ -24,6 +24,9 @@ Read each selected reference completely before planning or changing code.
 - Use the operating-system WebView. Do not bundle a fixed WebView2 runtime.
 - Optimize first for the owner’s Windows 10/11 environment while keeping platform-dependent code isolated for macOS and Linux.
 - Bundle Phoebo’s static RGBA WebP atlas as the only initial skin. Do not convert it to PNG in the initial release.
+- Keep the desktop viewport at `120 × 130` logical pixels. This is the rendered
+  destination size; never replace the Codex v2 atlas source cell size of
+  `192 × 208` when tuning the on-screen pet size.
 - Remove all Codex-facing behavior. Retain `codex-v2` only as the name of an asset-layout compatibility profile.
 - Keep skin import, multiple skins, autostart, updater, telemetry, cloud features, and store distribution out of the initial implementation.
 - Do not require the original Codex `pet.json`. Use the shared animation profile and an internal `PetSkin` descriptor.

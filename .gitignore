@@ -3,6 +3,7 @@ dist/
 .npm-cache/
 .cargo-cache/
 .tooling/
+artifacts/
 
 src-tauri/target/
 src-tauri/gen/

@@ -3,8 +3,8 @@
   "id": "default",
   "defaultClipId": "idle",
   "idleDelayMs": {
-    "minimum": 12000,
-    "maximum": 30000
+    "minimum": 60000,
+    "maximum": 120000
   },
   "cadence": {
     "avoidImmediateRepeat": true,

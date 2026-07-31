@@ -1,10 +1,23 @@
 import type { AnimationFrameRenderer } from "../animation/animation-player";
 import type { AtlasFrame } from "../animation/animation-profile";
-import { startPetWindowDragging, showPetWindow } from "../platform/tauri-desktop-window";
+import type {
+  DesktopControlSource,
+  DesktopWindowAdapter,
+} from "../platform/desktop-window-adapter";
+import petViewport from "../config/pet-viewport.json" with { type: "json" };
+import {
+  reportNativeRuntimeFailure,
+  TauriDesktopControlSource,
+  TauriDesktopWindowAdapter,
+} from "../platform/tauri-desktop-window";
 import { CanvasPetRenderer } from "../rendering/canvas-pet-renderer";
 import { observeDevicePixelRatio } from "../rendering/device-pixel-ratio-monitor";
+import { DeferredRedraw } from "./deferred-redraw";
+import { subscribeToDesktopControls } from "./desktop-control-subscription";
+import { disposeInReverseOrder } from "./disposer-stack";
 import { loadDefaultPetAssets } from "./load-default-pet";
 import { PetRuntime } from "./pet-runtime";
+import { RuntimeActivityController } from "./runtime-activity-controller";
 
 const CANVAS_SELECTOR = "#pet-canvas";
 
@@ -12,9 +25,18 @@ export async function bootstrapDesktopShell(): Promise<void> {
   let stopRuntime: (() => void) | undefined;
 
   try {
+    const desktopWindow = new TauriDesktopWindowAdapter();
+    const desktopControls = new TauriDesktopControlSource();
     const canvas = requirePetCanvas();
     const loadedPet = await loadDefaultPetAssets();
-    const renderer = new CanvasPetRenderer(canvas, loadedPet.animationProfile.atlas);
+    // Tauri owns the native window while Canvas owns its backing store. Passing
+    // the same reviewed logical viewport here keeps rendering independent from
+    // the larger source cell that is cropped out of the atlas.
+    const renderer = new CanvasPetRenderer(
+      canvas,
+      loadedPet.animationProfile.atlas,
+      petViewport,
+    );
     const renderFrame: AnimationFrameRenderer = (frame) => {
       renderer.renderFrame(loadedPet.atlas, frame);
     };
@@ -22,25 +44,37 @@ export async function bootstrapDesktopShell(): Promise<void> {
       loadedPet.animationProfile,
       loadedPet.behaviorProfile,
       renderFrame,
+      {
+        onFatalError: reportRuntimeFatalError,
+      },
     );
 
     // The native window starts hidden. Decode, validate, and paint a real frame
     // before `show()` so WebView2 never exposes an empty/white startup frame.
     renderer.renderFrame(loadedPet.atlas, loadedPet.animationProfile.atlas.neutralFrame);
-    stopRuntime = installRuntimeLifecycle(
+    const lifecycle = await installRuntimeLifecycle(
       canvas,
       runtime,
       () => runtime.currentFrame ?? loadedPet.animationProfile.atlas.neutralFrame,
       renderFrame,
+      desktopWindow,
+      desktopControls,
     );
-    await showPetWindow();
+    stopRuntime = lifecycle.stop;
+
+    // Rust clamps the window before showing it, then emits the same ordered
+    // visibility event used by tray Show. Do not write a local `true` afterward:
+    // a newer Hide click could otherwise be overwritten by this continuation.
+    await desktopWindow.show();
     runtime.start();
-    if (document.hidden) {
-      runtime.pause();
-    }
+    lifecycle.activity.activate();
   } catch (error: unknown) {
     stopRuntime?.();
     reportShellErrorOnce("startup", error);
+    // Startup failure intentionally leaves the native tray alive. Updating its
+    // tooltip makes that recoverable state visible even in a release GUI process,
+    // where no console window is present.
+    await reportNativeRuntimeFailure().catch(() => undefined);
   }
 }
 
@@ -54,58 +88,90 @@ function requirePetCanvas(): HTMLCanvasElement {
   return canvas;
 }
 
-function installRuntimeLifecycle(
+interface InstalledRuntimeLifecycle {
+  readonly activity: RuntimeActivityController;
+  readonly stop: () => void;
+}
+
+async function installRuntimeLifecycle(
   canvas: HTMLCanvasElement,
   runtime: PetRuntime,
   readCurrentFrame: () => AtlasFrame,
   renderFrame: AnimationFrameRenderer,
-): () => void {
-  const stopPixelRatioRedraw = installPixelRatioRedraw(readCurrentFrame, renderFrame);
-  const stopDragging = installWindowDragging(canvas);
-  const stopVisibilityRuntime = installVisibilityRuntime(runtime);
-  let stopped = false;
-
-  const stop = (): void => {
-    if (stopped) {
-      return;
-    }
-    stopped = true;
-    runtime.dispose();
-    stopPixelRatioRedraw();
-    stopDragging();
-    stopVisibilityRuntime();
-    window.removeEventListener("pagehide", stop);
-  };
-
-  // `pagehide` is the WebView lifecycle point at which browser listeners, RAFs,
-  // and timeouts should be released. Every disposer is intentionally idempotent.
-  window.addEventListener("pagehide", stop, { once: true });
-  return stop;
-}
-
-function installPixelRatioRedraw(
-  readCurrentFrame: () => AtlasFrame,
-  renderFrame: AnimationFrameRenderer,
-): () => void {
-  // Moving a Tauri window between monitors can change WebView2's devicePixelRatio.
-  // Redraw the player's current pose while rebuilding the Canvas backing store;
-  // resetting to neutral here would cause a visible flash during an animation.
-  return observeDevicePixelRatio(() => {
+  desktopWindow: DesktopWindowAdapter,
+  desktopControls: DesktopControlSource,
+): Promise<InstalledRuntimeLifecycle> {
+  const deferredPixelRatioRedraw = new DeferredRedraw(() => {
     try {
       renderFrame(readCurrentFrame());
     } catch (error: unknown) {
       reportShellErrorOnce("pixel-ratio-redraw", error);
     }
   });
+  const activity = new RuntimeActivityController(runtime, (runtimeAllowedToRun) => {
+    deferredPixelRatioRedraw.setEnabled(runtimeAllowedToRun);
+  });
+  activity.setDocumentVisible(!document.hidden);
+  const disposers: Array<() => void> = [];
+
+  try {
+    // Subscribe before reading the initial value so a tray click during atlas
+    // decoding cannot be lost between the snapshot and listener registration.
+    disposers.push(
+      await subscribeToDesktopControls(desktopControls, (event) => {
+        if (event.kind === "behavior-paused") {
+          activity.setBehaviorPausedByUser(event.paused);
+        } else {
+          activity.setNativeWindowVisible(event.visible);
+        }
+      }),
+    );
+    // Moving a Tauri window between monitors can change WebView2's devicePixelRatio.
+    // While active, redraw the current pose while rebuilding the backing store.
+    // While paused/hidden, DeferredRedraw collapses changes into one future draw.
+    disposers.push(
+      observeDevicePixelRatio(() => {
+        deferredPixelRatioRedraw.request();
+      }),
+    );
+    disposers.push(installWindowDragging(canvas, desktopWindow));
+    disposers.push(installVisibilityRuntime(activity));
+
+    let stopped = false;
+    const stop = (): void => {
+      if (stopped) {
+        return;
+      }
+      stopped = true;
+      activity.deactivate();
+      deferredPixelRatioRedraw.dispose();
+      runtime.dispose();
+      disposeInReverseOrder(disposers, (error) => {
+        reportShellErrorOnce("lifecycle-cleanup", error);
+      });
+      window.removeEventListener("pagehide", stop);
+    };
+
+    // `pagehide` is the WebView lifecycle point at which browser listeners, RAFs,
+    // and timeouts should be released. Every disposer is intentionally idempotent.
+    window.addEventListener("pagehide", stop, { once: true });
+    return Object.freeze({ activity, stop });
+  } catch (error: unknown) {
+    // Treat setup as a transaction. A failed media query or DOM subscription must
+    // not leave the already-installed Tauri event listeners alive.
+    activity.deactivate();
+    deferredPixelRatioRedraw.dispose();
+    runtime.dispose();
+    disposeInReverseOrder(disposers, (cleanupError) => {
+      reportShellErrorOnce("lifecycle-cleanup", cleanupError);
+    });
+    throw error;
+  }
 }
 
-function installVisibilityRuntime(runtime: PetRuntime): () => void {
+function installVisibilityRuntime(activity: RuntimeActivityController): () => void {
   const updateRuntime = (): void => {
-    if (document.hidden) {
-      runtime.pause();
-    } else {
-      runtime.resume();
-    }
+    activity.setDocumentVisible(!document.hidden);
   };
 
   // Browser visibility remains a composition concern. Both domain state machines
@@ -116,7 +182,10 @@ function installVisibilityRuntime(runtime: PetRuntime): () => void {
   };
 }
 
-function installWindowDragging(canvas: HTMLCanvasElement): () => void {
+function installWindowDragging(
+  canvas: HTMLCanvasElement,
+  desktopWindow: DesktopWindowAdapter,
+): () => void {
   const startDragging = (event: PointerEvent): void => {
     if (event.button !== 0) {
       return;
@@ -125,7 +194,7 @@ function installWindowDragging(canvas: HTMLCanvasElement): () => void {
     event.preventDefault();
     // An undecorated Tauri window has no native title bar. Forwarding a primary
     // pointer press asks the operating system to perform its normal window drag.
-    void startPetWindowDragging().catch((error: unknown) => {
+    void desktopWindow.startDragging().catch((error: unknown) => {
       reportShellErrorOnce("window-drag", error);
     });
   };
@@ -137,6 +206,11 @@ function installWindowDragging(canvas: HTMLCanvasElement): () => void {
 }
 
 const reportedShellErrors = new Set<string>();
+
+function reportRuntimeFatalError(error: unknown): void {
+  reportShellErrorOnce("runtime", error);
+  void reportNativeRuntimeFailure().catch(() => undefined);
+}
 
 function reportShellErrorOnce(operation: string, error: unknown): void {
   // Keep local failures visible during development without logging the same event

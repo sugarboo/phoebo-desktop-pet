@@ -35,7 +35,15 @@ export function observeDevicePixelRatio(
     currentPixelRatio,
     evaluatePixelRatio,
   );
-  const unsubscribeResize = environment.subscribeToResize(evaluatePixelRatio);
+  let unsubscribeResize: () => void;
+  try {
+    unsubscribeResize = environment.subscribeToResize(evaluatePixelRatio);
+  } catch (error: unknown) {
+    // Installation is transactional: if the second browser subscription fails,
+    // release the first one before propagating the startup error.
+    unsubscribeResolution();
+    throw error;
+  }
 
   function evaluatePixelRatio(): void {
     if (stopped) {

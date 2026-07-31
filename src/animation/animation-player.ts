@@ -29,6 +29,7 @@ export interface AnimationPlaybackCallbacks {
 
 export interface AnimationPlayerOptions {
   readonly maximumCatchUpMs?: number;
+  readonly onFatalError?: (error: unknown) => void;
 }
 
 interface ActivePlayback {
@@ -67,8 +68,10 @@ const browserAnimationTiming: AnimationTiming = {
  */
 export class AnimationPlayer {
   private readonly maximumCatchUpMs: number;
+  private readonly onFatalError: ((error: unknown) => void) | undefined;
 
   private playerStatus: AnimationPlayerStatus = "stopped";
+  private fatalErrorReported = false;
   private generation = 0;
   private activePlayback: ActivePlayback | undefined;
   private displayedFrame: AtlasFrame | undefined;
@@ -85,6 +88,7 @@ export class AnimationPlayer {
       throw new RangeError("maximumCatchUpMs must be a finite number greater than zero");
     }
     this.maximumCatchUpMs = maximumCatchUpMs;
+    this.onFatalError = options.onFatalError;
   }
 
   get status(): AnimationPlayerStatus {
@@ -142,10 +146,12 @@ export class AnimationPlayer {
       if (this.animationFrameHandle === handle) {
         this.animationFrameHandle = undefined;
       }
-      if (this.playerStatus !== "pose" || this.generation !== generation) {
-        return;
-      }
-      this.renderFrame(frame);
+      this.runAsynchronousWork(() => {
+        if (this.playerStatus !== "pose" || this.generation !== generation) {
+          return;
+        }
+        this.renderFrame(frame);
+      });
     });
     this.animationFrameHandle = handle;
   }
@@ -213,7 +219,9 @@ export class AnimationPlayer {
       if (this.animationFrameHandle === handle) {
         this.animationFrameHandle = undefined;
       }
-      this.renderPlaybackAtCurrentTime(generation);
+      this.runAsynchronousWork(() => {
+        this.renderPlaybackAtCurrentTime(generation);
+      });
     });
     this.animationFrameHandle = handle;
   }
@@ -288,7 +296,9 @@ export class AnimationPlayer {
         if (this.timeoutHandle === handle) {
           this.timeoutHandle = undefined;
         }
-        this.queuePlaybackRender(generation);
+        this.runAsynchronousWork(() => {
+          this.queuePlaybackRender(generation);
+        });
       }, location.millisecondsUntilNextFrame);
       this.timeoutHandle = handle;
     }
@@ -337,6 +347,44 @@ export class AnimationPlayer {
     if (this.animationFrameHandle !== undefined) {
       this.timing.cancelAnimationFrame(this.animationFrameHandle);
       this.animationFrameHandle = undefined;
+    }
+  }
+
+  private runAsynchronousWork(work: () => void): void {
+    try {
+      work();
+    } catch (error: unknown) {
+      this.failClosed(error);
+    }
+  }
+
+  private failClosed(error: unknown): void {
+    // A renderer or application callback is outside the timing state machine.
+    // Cancel first so an exception can never leave a "playing" generation with
+    // neither a timer nor RAF, or preserve work scheduled by a half-run callback.
+    this.cancelScheduledWork();
+    this.nextGeneration();
+    this.activePlayback = undefined;
+    if (this.playerStatus !== "disposed") {
+      this.playerStatus = "stopped";
+    }
+
+    if (this.fatalErrorReported) {
+      return;
+    }
+    this.fatalErrorReported = true;
+
+    if (this.onFatalError === undefined) {
+      // Standalone callers still receive an uncaught asynchronous error after the
+      // player has reached a safe stopped state.
+      throw error;
+    }
+
+    try {
+      this.onFatalError(error);
+    } catch {
+      // Error reporting is the last boundary. A faulty reporter must not revive
+      // animation work or start an exception-reporting loop.
     }
   }
 

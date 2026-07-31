@@ -19,6 +19,8 @@ The product is independent software. It must not depend on Codex being installed
 ## Initial user experience
 
 - Launch directly into a decoded neutral or idle Phoebo frame without a white-window flash.
+- Display Phoebo in a `120 × 130` logical-pixel viewport while preserving the
+  source atlas cell geometry independently.
 - Keep the pet above ordinary windows by default.
 - Let the user drag the pet to a preferred screen position.
 - Return to idle after each one-shot random action.

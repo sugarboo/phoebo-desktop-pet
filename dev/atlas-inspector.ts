@@ -6,15 +6,16 @@ import {
   type AtlasGeometry,
 } from "../src/animation/animation-profile.js";
 import { loadDefaultPetAssets } from "../src/app/load-default-pet.js";
+import petViewport from "../src/config/pet-viewport.json" with { type: "json" };
 import type { DecodedAtlas } from "../src/rendering/atlas-loader.js";
 import { CanvasPetRenderer } from "../src/rendering/canvas-pet-renderer.js";
 
 const EXPECTED_ATLAS_HASH =
   "231C5BE5FB9ED9C1E1F027742FD1500AEEE6018F6ED9C9EAB360ABF34FAAAA70";
-const REQUIRED_PIXEL_RATIOS = [1, 1.25, 1.5, 2] as const;
+const REQUIRED_PIXEL_RATIOS = [1, 1.25, 1.5, 1.75, 2] as const;
 const CONTACT_SHEET_COLUMNS = 6;
-const CARD_WIDTH = 208;
-const CARD_HEIGHT = 236;
+const CARD_WIDTH = 176;
+const CARD_HEIGHT = 158;
 const FRAME_OFFSET_X = 8;
 const FRAME_OFFSET_Y = 8;
 const CHECKER_SIZE = 12;
@@ -69,6 +70,7 @@ async function inspectAtlas(): Promise<void> {
   const renderer = new CanvasPetRenderer(
     probeCanvas,
     loadedPet.animationProfile.atlas,
+    petViewport,
     () => activePixelRatio,
   );
   const syntheticAtlas = createSyntheticAtlas(loadedPet.animationProfile.atlas);
@@ -86,7 +88,6 @@ async function inspectAtlas(): Promise<void> {
   const transparentRealFrames = drawRealAtlasContactSheet(
     renderer,
     loadedPet.atlas,
-    loadedPet.animationProfile.atlas,
     cases,
     displayPixelRatio,
   );
@@ -102,7 +103,8 @@ async function inspectAtlas(): Promise<void> {
     transparentRealFrames,
     backingStores: REQUIRED_PIXEL_RATIOS.map(
       (pixelRatio) =>
-        `${pixelRatio}×: ${Math.round(192 * pixelRatio)} × ${Math.round(208 * pixelRatio)}`,
+        `${pixelRatio}×: ${Math.round(renderer.logicalWidth * pixelRatio)} × ` +
+        `${Math.round(renderer.logicalHeight * pixelRatio)}`,
     ),
   });
 
@@ -167,7 +169,7 @@ function runSyntheticPixelChecks(
 
     cases.forEach(({ label, frame }, caseIndex) => {
       renderer.renderFrame(syntheticAtlas, frame);
-      assertCanvasDimensions(probeCanvas, geometry, pixelRatio);
+      assertCanvasDimensions(probeCanvas, renderer, pixelRatio);
       assertSolidColor(probeCanvas, colorForFrame(frame, geometry), `${pixelRatio}× ${label}`);
 
       if (caseIndex === 0) {
@@ -225,10 +227,11 @@ function createSyntheticAtlas(geometry: AtlasGeometry): DecodedAtlas {
 function drawRealAtlasContactSheet(
   renderer: CanvasPetRenderer,
   atlas: DecodedAtlas,
-  geometry: AtlasGeometry,
   cases: readonly InspectionCase[],
   pixelRatio: number,
 ): number {
+  const frameWidth = renderer.logicalWidth;
+  const frameHeight = renderer.logicalHeight;
   const rows = Math.ceil(cases.length / CONTACT_SHEET_COLUMNS);
   const logicalWidth = CONTACT_SHEET_COLUMNS * CARD_WIDTH;
   const logicalHeight = rows * CARD_HEIGHT;
@@ -255,7 +258,7 @@ function drawRealAtlasContactSheet(
 
   cases.forEach(({ label, frame }, caseIndex) => {
     renderer.renderFrame(atlas, frame);
-    assertCanvasDimensions(probeCanvas, geometry, pixelRatio);
+    assertCanvasDimensions(probeCanvas, renderer, pixelRatio);
     assertMixedAlpha(probeCanvas, label);
     transparentRealFrames += 1;
 
@@ -264,7 +267,7 @@ function drawRealAtlasContactSheet(
     const frameX = cardColumn * CARD_WIDTH + FRAME_OFFSET_X;
     const frameY = cardRow * CARD_HEIGHT + FRAME_OFFSET_Y;
 
-    drawCheckerboard(context, frameX, frameY, geometry.frameWidth, geometry.frameHeight);
+    drawCheckerboard(context, frameX, frameY, frameWidth, frameHeight);
     context.drawImage(
       probeCanvas,
       0,
@@ -273,12 +276,12 @@ function drawRealAtlasContactSheet(
       probeCanvas.height,
       frameX,
       frameY,
-      geometry.frameWidth,
-      geometry.frameHeight,
+      frameWidth,
+      frameHeight,
     );
-    drawRegistrationOverlay(context, frameX, frameY, geometry.frameWidth, geometry.frameHeight);
+    drawRegistrationOverlay(context, frameX, frameY, frameWidth, frameHeight);
     context.fillStyle = "#d8edf2";
-    context.fillText(label, frameX, frameY + geometry.frameHeight + 5);
+    context.fillText(label, frameX, frameY + frameHeight + 5);
   });
 
   return transparentRealFrames;
@@ -329,25 +332,25 @@ function drawRegistrationOverlay(
 
 function assertCanvasDimensions(
   canvas: HTMLCanvasElement,
-  geometry: AtlasGeometry,
+  renderer: CanvasPetRenderer,
   pixelRatio: number,
 ): void {
   assertEqual(
     canvas.width,
-    Math.round(geometry.frameWidth * pixelRatio),
+    Math.round(renderer.logicalWidth * pixelRatio),
     `${pixelRatio}× backing width`,
   );
   assertEqual(
     canvas.height,
-    Math.round(geometry.frameHeight * pixelRatio),
+    Math.round(renderer.logicalHeight * pixelRatio),
     `${pixelRatio}× backing height`,
   );
-  assertEqual(canvas.style.width, `${geometry.frameWidth}px`, "Canvas logical width");
-  assertEqual(canvas.style.height, `${geometry.frameHeight}px`, "Canvas logical height");
+  assertEqual(canvas.style.width, `${renderer.logicalWidth}px`, "Canvas logical width");
+  assertEqual(canvas.style.height, `${renderer.logicalHeight}px`, "Canvas logical height");
 
   const bounds = canvas.getBoundingClientRect();
-  assertNear(bounds.width, geometry.frameWidth, "Canvas DOM width");
-  assertNear(bounds.height, geometry.frameHeight, "Canvas DOM height");
+  assertNear(bounds.width, renderer.logicalWidth, "Canvas DOM width");
+  assertNear(bounds.height, renderer.logicalHeight, "Canvas DOM height");
 }
 
 function assertSolidColor(
