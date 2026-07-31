@@ -18,6 +18,8 @@ const TRAY_ICON_SIZE: u32 = 32;
 static SHELL_ERROR_REPORTED: AtomicBool = AtomicBool::new(false);
 
 pub fn install(app: &mut App) -> tauri::Result<()> {
+    // Menu IDs are stable machine-readable values; labels are only presentation.
+    // Tauri routes the selected native menu item back through `on_menu_event`.
     let show_item = MenuItem::with_id(app, MENU_SHOW_ID, "Show", true, None::<&str>)?;
     let hide_item = MenuItem::with_id(app, MENU_HIDE_ID, "Hide", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, MENU_QUIT_ID, "Quit", true, None::<&str>)?;
@@ -40,6 +42,8 @@ pub fn install(app: &mut App) -> tauri::Result<()> {
 }
 
 fn set_main_window_visibility(app: &AppHandle, visible: bool) {
+    // The label comes from tauri.conf.json. Looking the window up on demand avoids
+    // storing native window handles in application-global mutable state.
     let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
         report_shell_error("main window is unavailable");
         return;
@@ -58,12 +62,16 @@ fn set_main_window_visibility(app: &AppHandle, visible: bool) {
 }
 
 fn report_shell_error(message: impl std::fmt::Display) {
+    // A broken native operation could otherwise flood stderr on repeated tray
+    // clicks. One bounded diagnostic is enough while keeping the tray responsive.
     if !SHELL_ERROR_REPORTED.swap(true, Ordering::Relaxed) {
         eprintln!("[desktop-shell] {message}");
     }
 }
 
 fn placeholder_tray_icon() -> Image<'static> {
+    // Generate the small RGBA icon in memory so Milestone 1 does not need another
+    // runtime asset or image-decoding dependency. Zero-filled pixels stay transparent.
     let mut rgba = vec![0_u8; (TRAY_ICON_SIZE * TRAY_ICON_SIZE * 4) as usize];
 
     for y in 0..TRAY_ICON_SIZE {

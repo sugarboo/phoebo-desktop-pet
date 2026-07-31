@@ -14,6 +14,8 @@ export interface LoadedPetAssets {
 export async function loadDefaultPetAssets(
   atlasLoader: AtlasLoader = new AtlasLoader(),
 ): Promise<LoadedPetAssets> {
+  // Composition happens in one place: parse the layout, verify that the selected
+  // skin names that layout, then decode the associated image.
   const animationProfile = parseAnimationProfile(animationProfileDocument as unknown);
 
   if (DEFAULT_PET_SKIN.animationProfileId !== animationProfile.id) {

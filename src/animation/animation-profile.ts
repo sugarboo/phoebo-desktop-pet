@@ -1,6 +1,9 @@
 export const ANIMATION_PROFILE_SCHEMA_VERSION = 1;
 export const CODEX_V2_PROFILE_ID = "codex-v2";
 
+// This is a compatibility contract for the sprite layout, not a connection to the
+// Codex application. Keeping it centralized prevents renderer code from scattering
+// Phoebo-specific dimensions and coordinates.
 export const CODEX_V2_ATLAS_CONTRACT = Object.freeze({
   width: 1536,
   height: 2288,
@@ -56,6 +59,8 @@ export interface DirectionProfile {
 }
 
 export interface AnimationProfile {
+  // schemaVersion describes the JSON shape; `id` describes the atlas layout.
+  // They evolve independently when future formats or skins are introduced.
   readonly schemaVersion: number;
   readonly id: string;
   readonly atlas: AtlasGeometry;

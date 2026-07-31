@@ -41,6 +41,7 @@ Read each selected reference completely before planning or changing code.
 ## Enforce architecture boundaries
 
 - Name engine abstractions by responsibility: `PetSkin`, `AnimationProfile`, `AnimationPlayer`, `CanvasPetRenderer`, `BehaviorScheduler`, `DesktopWindowAdapter`.
+- When generating code, add clear, easy-to-understand comments around Tauri concepts, lifecycle decisions, platform boundaries, and non-obvious algorithms so the owner can read the implementation to learn Tauri development. Explain intent and tradeoffs rather than restating obvious syntax.
 - Use `phoebo` only for the bundled skin identifier, metadata, asset path, and tests specific to that artwork.
 - Keep atlas coordinates, frame counts, durations, and behavior weights in configuration; never scatter row or column literals through rendering code.
 - Inject time and randomness into the scheduler so tests are deterministic.

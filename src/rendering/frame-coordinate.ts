@@ -15,6 +15,8 @@ export function getFrameSourceRectangle(
   assertFrameCoordinate("column", frame.column, atlas.columns);
 
   const sourceRectangle = {
+    // Atlas coordinates use zero-based grid cells. The renderer consumes this
+    // integer source rectangle through Canvas's nine-argument drawImage overload.
     x: frame.column * atlas.frameWidth,
     y: frame.row * atlas.frameHeight,
     width: atlas.frameWidth,

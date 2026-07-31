@@ -32,6 +32,8 @@ export class CanvasPetRenderer {
     this.logicalWidth = atlasGeometry.frameWidth;
     this.logicalHeight = atlasGeometry.frameHeight;
 
+    // Alpha must remain enabled because the Tauri window itself is transparent;
+    // transparent Canvas pixels reveal the desktop behind Phoebo.
     const context = canvas.getContext("2d", { alpha: true });
     if (context === null) {
       throw new Error("Canvas 2D is unavailable");
@@ -53,12 +55,16 @@ export class CanvasPetRenderer {
 
     this.resizeBackingStore(metrics);
 
+    // Canvas width/height are physical backing pixels, whereas its CSS size and
+    // Tauri window size stay in logical pixels. Scaling the transform joins the two.
     this.context.setTransform(1, 0, 0, 1, 0, 0);
     this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.context.setTransform(metrics.scaleX, 0, 0, metrics.scaleY, 0, 0);
     this.context.imageSmoothingEnabled = true;
     this.context.imageSmoothingQuality = "high";
     this.context.drawImage(
+      // The first rectangle crops one cell from the full atlas; the second draws it
+      // into the full logical pet window without extracting intermediate images.
       atlas.source,
       source.x,
       source.y,
@@ -79,6 +85,8 @@ export class CanvasPetRenderer {
     ) {
       this.canvas.width = metrics.backingWidth;
       this.canvas.height = metrics.backingHeight;
+      // Assigning width or height resets Canvas drawing state, which is why
+      // renderFrame reapplies transforms and smoothing after this method.
     }
 
     const logicalWidth = `${this.logicalWidth}px`;
@@ -162,6 +170,8 @@ export function calculateCanvasMetrics(
   assertPositiveInteger("logicalHeight", logicalHeight);
 
   const pixelRatio = normalizeDevicePixelRatio(requestedPixelRatio);
+  // Backing dimensions must be integers. Deriving the actual scale from rounded
+  // dimensions keeps the destination aligned exactly with the allocated pixels.
   const backingWidth = Math.max(1, Math.round(logicalWidth * pixelRatio));
   const backingHeight = Math.max(1, Math.round(logicalHeight * pixelRatio));
 

@@ -26,6 +26,8 @@ export class AtlasLoader {
     }
 
     const image = new Image();
+    // `decode()` waits for WebView2 to fully decode the local WebP. Merely waiting
+    // for a URL assignment is not enough to guarantee natural dimensions or pixels.
     image.decoding = "async";
     image.src = source.url;
 
@@ -37,6 +39,8 @@ export class AtlasLoader {
       });
     }
 
+    // Validate before returning the handle so an incompatible atlas can never
+    // become the renderer's active image.
     validateDecodedAtlasDimensions(image.naturalWidth, image.naturalHeight, expected);
 
     return Object.freeze({

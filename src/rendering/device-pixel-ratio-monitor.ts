@@ -7,6 +7,8 @@ export interface DevicePixelRatioEnvironment {
 const browserDevicePixelRatioEnvironment: DevicePixelRatioEnvironment = {
   readPixelRatio: () => window.devicePixelRatio,
   subscribeToResolution: (pixelRatio, listener) => {
+    // A resolution media query fires when the window leaves the DPR it was created
+    // for. Resize is also observed below because WebView behavior varies by platform.
     const mediaQuery = window.matchMedia(`(resolution: ${pixelRatio}dppx)`);
     mediaQuery.addEventListener("change", listener);
     return () => {
@@ -25,6 +27,8 @@ export function observeDevicePixelRatio(
   onChange: (pixelRatio: number) => void,
   environment: DevicePixelRatioEnvironment = browserDevicePixelRatioEnvironment,
 ): () => void {
+  // Dependencies are injectable so monitor changes and cleanup can be tested
+  // deterministically without a real browser or a second physical display.
   let stopped = false;
   let currentPixelRatio = normalizeDevicePixelRatio(environment.readPixelRatio());
   let unsubscribeResolution = environment.subscribeToResolution(
@@ -43,6 +47,7 @@ export function observeDevicePixelRatio(
       return;
     }
 
+    // A media query describes one specific DPR, so replace it after every change.
     unsubscribeResolution();
     currentPixelRatio = nextPixelRatio;
     unsubscribeResolution = environment.subscribeToResolution(

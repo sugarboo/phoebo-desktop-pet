@@ -42,6 +42,8 @@ export class AnimationProfileValidationError extends Error {
 }
 
 export function parseAnimationProfile(input: unknown): AnimationProfile {
+  // Imported JSON is `unknown` at this boundary. Each helper narrows one field and
+  // includes its JSON path in errors, making malformed profiles straightforward to fix.
   const profile = expectRecord(input, "profile");
   assertExactKeys(profile, TOP_LEVEL_KEYS, "profile");
 
@@ -66,6 +68,8 @@ export function parseAnimationProfile(input: unknown): AnimationProfile {
   const directions = parseDirections(readRequired(profile, "directions", "profile"), atlas);
 
   const idle = clips["idle"];
+  // Neutral is a loading/recovery pose. Including it in idle would subtly change
+  // the verified Codex-v2 animation cadence.
   if (
     idle?.frames.some(
       (frame) =>
@@ -160,6 +164,8 @@ function parseClips(input: unknown, atlas: AtlasGeometry): Readonly<Record<strin
   }
 
   const clips: Record<string, AnimationClip> = {};
+  // Build new immutable domain objects rather than letting runtime code retain and
+  // accidentally mutate Vite's imported JSON document.
   for (const clipId of clipIds) {
     expectIdentifier(clipId, `${path}.${clipId}`);
     const clipPath = `${path}.${clipId}`;
@@ -379,6 +385,8 @@ function assertExactKeys(
   expectedKeys: readonly string[],
   path: string,
 ): void {
+  // Rejecting unknown fields catches misspellings instead of silently accepting a
+  // profile that looks configured but behaves differently.
   for (const expectedKey of expectedKeys) {
     if (!Object.hasOwn(record, expectedKey)) {
       fail(`${path}.${expectedKey}`, "required field is missing");
