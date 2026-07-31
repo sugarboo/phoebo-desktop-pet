@@ -86,6 +86,7 @@ Own lifecycle and orchestration only:
 3. Show the native window after the first frame is ready.
 4. Start the player and behavior scheduler.
 5. Forward pause, resume, visibility, and shutdown events.
+6. Own pending-action and configured neutral-settle transitions.
 
 Do not let it calculate frame coordinates or weighted random choices.
 
@@ -115,6 +116,8 @@ Do not let it calculate frame coordinates or weighted random choices.
 - Advance through per-frame durations without assuming a fixed frame rate.
 - Support looping, one-shot completion, cancellation, pause, and resume.
 - Notify completion once; never start behavior selection itself.
+- Notify loop boundaries before drawing the next cycle's first frame, then tolerate
+  a listener replacing the active clip.
 
 ### `BehaviorScheduler`
 
@@ -122,6 +125,8 @@ Do not let it calculate frame coordinates or weighted random choices.
 - Respect minimum/maximum idle delay, per-action cooldown, and interruption policy.
 - Use one cancellable timeout rather than polling at a high frequency.
 - Inject `Clock` and `RandomSource`.
+- Keep a selected action pending until `PetRuntime` confirms actual playback; start
+  its cooldown at that confirmation.
 - Return to the configured default action after one-shot completion.
 - Stop completely when paused, hidden, or shutting down.
 
@@ -196,8 +201,12 @@ idle hold
   -> scheduler timeout
   -> filter cooldown-eligible actions
   -> weighted selection
-  -> player runs clip
+  -> queue pending action
+  -> next idle-loop boundary
+  -> neutral pre-settle
+  -> confirm action start and run clip
   -> one completion event
+  -> neutral post-settle
   -> default idle clip
   -> schedule next hold
 ```

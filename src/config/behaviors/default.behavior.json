@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 2,
+  "id": "default",
+  "defaultClipId": "idle",
+  "idleDelayMs": {
+    "minimum": 12000,
+    "maximum": 30000
+  },
+  "cadence": {
+    "avoidImmediateRepeat": true,
+    "settleBeforeActionMs": 120,
+    "settleAfterActionMs": 180
+  },
+  "actions": [
+    {
+      "clipId": "wave",
+      "weight": 18,
+      "cooldownMs": 12000,
+      "interruptible": false
+    },
+    {
+      "clipId": "jump",
+      "weight": 12,
+      "cooldownMs": 15000,
+      "interruptible": false
+    },
+    {
+      "clipId": "waiting",
+      "weight": 30,
+      "cooldownMs": 6000,
+      "interruptible": true
+    },
+    {
+      "clipId": "inspect",
+      "weight": 20,
+      "cooldownMs": 9000,
+      "interruptible": true
+    }
+  ]
+}

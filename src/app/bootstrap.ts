@@ -1,23 +1,45 @@
+import type { AnimationFrameRenderer } from "../animation/animation-player";
+import type { AtlasFrame } from "../animation/animation-profile";
 import { startPetWindowDragging, showPetWindow } from "../platform/tauri-desktop-window";
 import { CanvasPetRenderer } from "../rendering/canvas-pet-renderer";
 import { observeDevicePixelRatio } from "../rendering/device-pixel-ratio-monitor";
 import { loadDefaultPetAssets } from "./load-default-pet";
+import { PetRuntime } from "./pet-runtime";
 
 const CANVAS_SELECTOR = "#pet-canvas";
 
 export async function bootstrapDesktopShell(): Promise<void> {
+  let stopRuntime: (() => void) | undefined;
+
   try {
     const canvas = requirePetCanvas();
     const loadedPet = await loadDefaultPetAssets();
     const renderer = new CanvasPetRenderer(canvas, loadedPet.animationProfile.atlas);
+    const renderFrame: AnimationFrameRenderer = (frame) => {
+      renderer.renderFrame(loadedPet.atlas, frame);
+    };
+    const runtime = new PetRuntime(
+      loadedPet.animationProfile,
+      loadedPet.behaviorProfile,
+      renderFrame,
+    );
 
     // The native window starts hidden. Decode, validate, and paint a real frame
     // before `show()` so WebView2 never exposes an empty/white startup frame.
     renderer.renderFrame(loadedPet.atlas, loadedPet.animationProfile.atlas.neutralFrame);
-    installPixelRatioRedraw(renderer, loadedPet);
-    installWindowDragging(canvas);
+    stopRuntime = installRuntimeLifecycle(
+      canvas,
+      runtime,
+      () => runtime.currentFrame ?? loadedPet.animationProfile.atlas.neutralFrame,
+      renderFrame,
+    );
     await showPetWindow();
+    runtime.start();
+    if (document.hidden) {
+      runtime.pause();
+    }
   } catch (error: unknown) {
+    stopRuntime?.();
     reportShellErrorOnce("startup", error);
   }
 }
@@ -32,27 +54,70 @@ function requirePetCanvas(): HTMLCanvasElement {
   return canvas;
 }
 
+function installRuntimeLifecycle(
+  canvas: HTMLCanvasElement,
+  runtime: PetRuntime,
+  readCurrentFrame: () => AtlasFrame,
+  renderFrame: AnimationFrameRenderer,
+): () => void {
+  const stopPixelRatioRedraw = installPixelRatioRedraw(readCurrentFrame, renderFrame);
+  const stopDragging = installWindowDragging(canvas);
+  const stopVisibilityRuntime = installVisibilityRuntime(runtime);
+  let stopped = false;
+
+  const stop = (): void => {
+    if (stopped) {
+      return;
+    }
+    stopped = true;
+    runtime.dispose();
+    stopPixelRatioRedraw();
+    stopDragging();
+    stopVisibilityRuntime();
+    window.removeEventListener("pagehide", stop);
+  };
+
+  // `pagehide` is the WebView lifecycle point at which browser listeners, RAFs,
+  // and timeouts should be released. Every disposer is intentionally idempotent.
+  window.addEventListener("pagehide", stop, { once: true });
+  return stop;
+}
+
 function installPixelRatioRedraw(
-  renderer: CanvasPetRenderer,
-  loadedPet: Awaited<ReturnType<typeof loadDefaultPetAssets>>,
-): void {
+  readCurrentFrame: () => AtlasFrame,
+  renderFrame: AnimationFrameRenderer,
+): () => void {
   // Moving a Tauri window between monitors can change WebView2's devicePixelRatio.
-  // Redrawing rebuilds the Canvas backing store while preserving its logical size.
-  const stopObserving = observeDevicePixelRatio(() => {
+  // Redraw the player's current pose while rebuilding the Canvas backing store;
+  // resetting to neutral here would cause a visible flash during an animation.
+  return observeDevicePixelRatio(() => {
     try {
-      renderer.renderFrame(loadedPet.atlas, loadedPet.animationProfile.atlas.neutralFrame);
+      renderFrame(readCurrentFrame());
     } catch (error: unknown) {
       reportShellErrorOnce("pixel-ratio-redraw", error);
     }
   });
-
-  // `pagehide` is the WebView lifecycle point at which browser listeners should be
-  // released. The disposer is idempotent, so repeated cleanup is harmless.
-  window.addEventListener("pagehide", stopObserving, { once: true });
 }
 
-function installWindowDragging(canvas: HTMLCanvasElement): void {
-  canvas.addEventListener("pointerdown", (event: PointerEvent) => {
+function installVisibilityRuntime(runtime: PetRuntime): () => void {
+  const updateRuntime = (): void => {
+    if (document.hidden) {
+      runtime.pause();
+    } else {
+      runtime.resume();
+    }
+  };
+
+  // Browser visibility remains a composition concern. Both domain state machines
+  // can therefore be tested without DOM or Tauri globals.
+  document.addEventListener("visibilitychange", updateRuntime);
+  return () => {
+    document.removeEventListener("visibilitychange", updateRuntime);
+  };
+}
+
+function installWindowDragging(canvas: HTMLCanvasElement): () => void {
+  const startDragging = (event: PointerEvent): void => {
     if (event.button !== 0) {
       return;
     }
@@ -63,7 +128,12 @@ function installWindowDragging(canvas: HTMLCanvasElement): void {
     void startPetWindowDragging().catch((error: unknown) => {
       reportShellErrorOnce("window-drag", error);
     });
-  });
+  };
+
+  canvas.addEventListener("pointerdown", startDragging);
+  return () => {
+    canvas.removeEventListener("pointerdown", startDragging);
+  };
 }
 
 const reportedShellErrors = new Set<string>();

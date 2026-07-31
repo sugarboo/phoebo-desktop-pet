@@ -10,7 +10,10 @@
   },
   "include": [
     "src/animation/**/*.ts",
+    "src/app/pet-runtime.ts",
+    "src/behavior/**/*.ts",
     "src/config/animation-profiles/*.json",
+    "src/config/behaviors/*.json",
     "src/pet/pet-skin.ts",
     "src/rendering/**/*.ts",
     "tests/**/*.ts"

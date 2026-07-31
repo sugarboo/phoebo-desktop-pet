@@ -7,9 +7,10 @@
 3. Animation row map
 4. Shared animation profile
 5. Behavior profile
-6. Playback rules
-7. Rendering rules
-8. Future skin compatibility
+6. Cadence and transition policy
+7. Playback rules
+8. Rendering rules
+9. Future skin compatibility
 
 ## Verified Phoebo source
 
@@ -147,12 +148,17 @@ Recommended shape:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "default",
   "defaultClipId": "idle",
   "idleDelayMs": {
-    "minimum": 2500,
-    "maximum": 7000
+    "minimum": 12000,
+    "maximum": 30000
+  },
+  "cadence": {
+    "avoidImmediateRepeat": true,
+    "settleBeforeActionMs": 120,
+    "settleAfterActionMs": 180
   },
   "actions": [
     {
@@ -190,14 +196,42 @@ Validate:
 - referenced clip IDs exist;
 - weights are finite and greater than zero;
 - delay bounds are ordered and nonnegative;
+- settle durations are finite, nonnegative, and no greater than `500 ms`;
 - cooldowns are nonnegative;
 - at least one action is eligible;
 - the default clip exists and is loopable.
+
+## Cadence and transition policy
+
+Treat perceived rhythm as part of correctness, not incidental random tuning.
+
+- Sample the next idle delay only after the previous action has returned to `idle`.
+  Apply the same `12000–30000 ms` range before the first random action.
+- When two or more actions are cooldown-eligible, temporarily exclude the most
+  recently started action. Allow it when it is the only eligible action rather than
+  stalling the scheduler.
+- Let the scheduler select and queue an action, but let `PetRuntime` start it only
+  when the idle loop reaches its next cycle boundary. Keep boundary reporting in
+  `AnimationPlayer`; do not teach `BehaviorScheduler` about frames.
+- At the idle boundary, render the animation profile's neutral pose for the
+  configured pre-action settle, then start the one-shot. After its authored final
+  hold, render neutral for the configured post-action settle, restart idle at frame
+  zero, and only then schedule the next delay.
+- Start an action's cooldown when playback actually begins, not when it first
+  becomes pending.
+- Keep `settleBeforeActionMs` and `settleAfterActionMs` configurable. If visual QA
+  shows that neutral creates a double snap for this atlas, set the corresponding
+  value to zero while retaining boundary-aligned switching.
+- Implement each settle with one cancellable timeout followed by one
+  `requestAnimationFrame` draw. Do not introduce a resident 60 FPS loop or alpha
+  cross-fade by default; cross-fading non-aligned sprite poses can create ghosting.
 
 ## Playback rules
 
 - Start on the neutral frame while loading, then enter `idle`.
 - Schedule the next frame boundary with one cancellable timer, render the changed frame in one `requestAnimationFrame`, and use `performance.now()` to correct timer drift.
+- Notify a loop boundary before drawing the first frame of the next loop. A listener
+  may replace that clip, so recheck playback ownership before drawing or scheduling.
 - Let a one-shot action finish unless shutdown, hide, pause, or an explicitly higher-priority user action cancels it.
 - Emit one completion notification per action generation.
 - Return to `idle` before scheduling the next action.

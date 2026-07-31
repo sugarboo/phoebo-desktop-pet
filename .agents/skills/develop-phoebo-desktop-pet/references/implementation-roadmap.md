@@ -7,12 +7,13 @@
 3. Milestone 1 — Tauri shell
 4. Milestone 2 — atlas and renderer
 5. Milestone 3 — playback and behavior
-6. Milestone 4 — desktop integration
-7. Milestone 5 — robustness and lightweight optimization
-8. Milestone 6 — Windows portable release
-9. Deferred skin milestone
-10. Verification matrix
-11. Definition of done
+6. Milestone 3 polish — cadence and transitions
+7. Milestone 4 — desktop integration
+8. Milestone 5 — robustness and lightweight optimization
+9. Milestone 6 — Windows portable release
+10. Deferred skin milestone
+11. Verification matrix
+12. Definition of done
 
 ## Delivery method
 
@@ -124,6 +125,39 @@ Play accurate animations and select random actions without overlapping timers.
 - A seeded test produces a repeatable action sequence.
 - Ineligible actions are never selected.
 - A 30-minute run has no stuck clip, timer multiplication, or monotonically growing listener count.
+
+## Milestone 3 polish — cadence and transitions
+
+### Goal
+
+Apply owner feedback from the successful Milestone 3 soak so random actions feel
+calm and clip changes do not interrupt idle motion abruptly.
+
+### Tasks
+
+- Implement the cadence and transition policy from `animation-contract.md`.
+- Upgrade the behavior profile to schema version 2 and use a `12000–30000 ms`
+  default idle-delay range.
+- Suppress an immediate repeat when another cooldown-eligible action exists.
+- Let `AnimationPlayer` report an idle-loop boundary without importing behavior
+  concepts; let `PetRuntime` own pending-action and neutral-settle transitions.
+- Start cooldown accounting when action playback begins.
+- Add deterministic tests for boundary queuing, repeat suppression, settle
+  cancellation, pause/resume, stale callbacks, and zero-duration settle fallback.
+
+### Exit checks
+
+- The scheduler selects no action sooner than 12 seconds or later than 30 seconds
+  after idle is restored; boundary alignment adds no more than one idle-loop cycle.
+- The same action is not selected twice consecutively while another action is
+  eligible.
+- Every configured random action enters and leaves through the documented boundary
+  and settle policy, without action-to-action chaining.
+- Each active state owns at most its documented timer or RAF, and hidden or paused
+  states retain none.
+- A real desktop review of every configured action finds no distracting neutral
+  flash, double snap, or clipped final hold.
+- No dependency, permission, network access, or continuous rendering loop is added.
 
 ## Milestone 4 — desktop integration
 
