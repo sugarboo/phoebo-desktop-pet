@@ -23,6 +23,9 @@ The product is independent software. It must not depend on Codex being installed
   source atlas cell geometry independently.
 - Keep the pet above ordinary windows by default.
 - Let the user drag the pet to a preferred screen position.
+- Hold the first authored idle frame as the motionless default pose.
+- Present the original six-frame blink sequence as a separately weighted random action.
+- While the primary button moves the native window horizontally, show the matching left/right locomotion loop; return to the static pose when movement stops.
 - Return to idle after each one-shot random action.
 - Preserve a calm cadence; do not animate continuously when an idle hold is appropriate.
 - Provide tray actions for show/hide, pause/resume random behavior, reset position, always-on-top, and quit.
@@ -38,9 +41,9 @@ The product is independent software. It must not depend on Codex being installed
 - One default behavior profile.
 - Static RGBA WebP atlas decoding.
 - Canvas cropping and animation playback.
-- Weighted random action scheduling with cooldowns.
+- Weighted random action scheduling with cooldowns, including the bundled blink.
 - Transparent, undecorated, non-resizable desktop window.
-- Dragging, position clamping, always-on-top, tray recovery, and explicit quit.
+- Direction-aware dragging, position clamping, always-on-top, tray recovery, and explicit quit.
 - Minimal local settings only if needed for position, scale, pause state, or always-on-top state.
 - Windows development and portable executable validation.
 - Architecture that can compile on macOS and Linux without leaking platform assumptions into the animation domain.

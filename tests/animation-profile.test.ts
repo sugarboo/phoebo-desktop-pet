@@ -14,11 +14,17 @@ import {
   test,
 } from "./test-harness.js";
 
-const EXPECTED_FRAME_COUNTS = [6, 8, 8, 4, 5, 8, 6, 6, 6] as const;
-const EXPECTED_DURATION_TOTALS = [1100, 1060, 1060, 700, 840, 1220, 1010, 820, 1030] as const;
+const EXPECTED_FRAME_COUNTS = [1, 6, 8, 8, 4, 5, 8, 6, 6, 6] as const;
+const EXPECTED_DURATION_TOTALS = [
+  280, 1100, 1060, 1060, 700, 840, 1220, 1010, 820, 1030,
+] as const;
 const EXPECTED_CLIPS = {
   idle: {
-    playback: "loop",
+    playback: "pose",
+    frames: [[0, 0, 280]],
+  },
+  blink: {
+    playback: "once",
     frames: [
       [0, 0, 280],
       [0, 1, 110],
@@ -197,7 +203,7 @@ test("matches every locked codex-v2 frame semantic", () => {
   );
 });
 
-test("references exactly 74 unique codex-v2 atlas cells", () => {
+test("references 75 semantics across exactly 74 unique codex-v2 atlas cells", () => {
   const profile = parseAnimationProfile(animationProfileDocument as unknown);
   const usedFrames: AtlasFrame[] = [profile.atlas.neutralFrame];
 
@@ -217,9 +223,23 @@ test("references exactly 74 unique codex-v2 atlas cells", () => {
     }
   }
 
-  assertEqual(usedFrames.length, 74);
+  assertEqual(usedFrames.length, 75);
   assertEqual(usedCellKeys.size, 74);
   assertDeepEqual(unusedCellKeys, EXPECTED_UNUSED_CELLS);
+});
+
+test("rejects a pose clip with more than one frame", () => {
+  const invalidProfile = structuredClone(animationProfileDocument);
+  invalidProfile.clips.idle.frames.push({
+    row: 0,
+    column: 1,
+    durationMs: 110,
+  });
+
+  assertThrows(
+    () => parseAnimationProfile(invalidProfile as unknown),
+    "pose clips must contain exactly one frame",
+  );
 });
 
 test("rejects geometry that differs from codex-v2", () => {

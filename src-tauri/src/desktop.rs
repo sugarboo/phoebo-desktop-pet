@@ -27,6 +27,11 @@ pub fn is_behavior_paused() -> bool {
 }
 
 #[tauri::command]
+pub fn is_left_mouse_button_pressed() -> bool {
+    platform_left_mouse_button_pressed()
+}
+
+#[tauri::command]
 pub fn show_main_window(app: AppHandle) -> Result<(), String> {
     set_main_window_visibility(&app, true).map_err(|_| "Could not show Phoebo".to_owned())
 }
@@ -298,6 +303,22 @@ fn choose_preferred<T, E>(
 
 fn to_i32(value: i64) -> i32 {
     value.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+}
+
+#[cfg(target_os = "windows")]
+fn platform_left_mouse_button_pressed() -> bool {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+
+    // SAFETY: GetAsyncKeyState reads process-external input state and takes no
+    // pointer. Its high bit reports whether the physical left button is down now.
+    unsafe { GetAsyncKeyState(i32::from(VK_LBUTTON)) < 0 }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn platform_left_mouse_button_pressed() -> bool {
+    // Windows is the current acceptance platform. Other platforms still receive
+    // native move bursts but end direct control at the first stationary check.
+    false
 }
 
 impl WorkArea {

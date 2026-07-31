@@ -47,7 +47,8 @@ sourceHeight = 208
 
 The full atlas has 88 cells. The current contract uses 74 cells and leaves 14 transparent cells unused.
 
-Treat row `0`, column `6` as the neutral pose. Do not include it in the idle loop.
+Treat row `0`, column `6` as the neutral transition pose. The static `idle` pose
+uses row `0`, column `0`; the one-shot `blink` reuses that cell as its first frame.
 
 Rows `9` and `10` hold 16 directional poses in 22.5-degree increments. Direction `0°` means up, not right.
 
@@ -55,7 +56,8 @@ Rows `9` and `10` hold 16 directional poses in 22.5-degree increments. Direction
 
 | Generic clip ID | Row | Columns | Durations in milliseconds | Playback |
 |---|---:|---|---|---|
-| `idle` | 0 | 0–5 | 280, 110, 110, 140, 140, 320 | loop |
+| `idle` | 0 | 0 | 280 | pose |
+| `blink` | 0 | 0–5 | 280, 110, 110, 140, 140, 320 | once/random |
 | `walk-right` | 1 | 0–7 | 120, 120, 120, 120, 120, 120, 120, 220 | loop/controlled |
 | `walk-left` | 2 | 0–7 | 120, 120, 120, 120, 120, 120, 120, 220 | loop/controlled |
 | `wave` | 3 | 0–3 | 140, 140, 140, 280 | once |
@@ -100,7 +102,13 @@ Recommended shape:
   },
   "clips": {
     "idle": {
-      "playback": "loop",
+      "playback": "pose",
+      "frames": [
+        { "row": 0, "column": 0, "durationMs": 280 }
+      ]
+    },
+    "blink": {
+      "playback": "once",
       "frames": [
         { "row": 0, "column": 0, "durationMs": 280 },
         { "row": 0, "column": 1, "durationMs": 110 },
@@ -148,42 +156,58 @@ Recommended shape:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "default",
   "defaultClipId": "idle",
   "idleDelayMs": {
-    "minimum": 60000,
-    "maximum": 120000
+    "minimum": 30000,
+    "maximum": 60000
   },
   "cadence": {
     "avoidImmediateRepeat": true,
     "settleBeforeActionMs": 120,
     "settleAfterActionMs": 180
   },
+  "dragMotion": {
+    "leftClipId": "walk-left",
+    "rightClipId": "walk-right",
+    "stopDelayMs": 140
+  },
   "actions": [
     {
       "clipId": "wave",
       "weight": 18,
       "cooldownMs": 12000,
-      "interruptible": false
+      "interruptible": false,
+      "transition": "settled"
     },
     {
       "clipId": "jump",
       "weight": 12,
       "cooldownMs": 15000,
-      "interruptible": false
+      "interruptible": false,
+      "transition": "settled"
     },
     {
       "clipId": "waiting",
       "weight": 30,
       "cooldownMs": 6000,
-      "interruptible": true
+      "interruptible": true,
+      "transition": "settled"
     },
     {
       "clipId": "inspect",
       "weight": 20,
       "cooldownMs": 9000,
-      "interruptible": true
+      "interruptible": true,
+      "transition": "settled"
+    },
+    {
+      "clipId": "blink",
+      "weight": 20,
+      "cooldownMs": 0,
+      "interruptible": true,
+      "transition": "direct"
     }
   ]
 }
@@ -199,20 +223,21 @@ Validate:
 - settle durations are finite, nonnegative, and no greater than `500 ms`;
 - cooldowns are nonnegative;
 - at least one action is eligible;
-- the default clip exists and is loopable.
+- the default clip is a persistent `pose` or `loop`;
+- drag clips exist, differ, loop, and use a positive stop delay no greater than `500 ms`;
+- action transition is `settled` or `direct`.
 
 ## Cadence and transition policy
 
 Treat perceived rhythm as part of correctness, not incidental random tuning.
 
 - Sample the next idle delay only after the previous action has returned to `idle`.
-  Apply the same `60000–120000 ms` range before the first random action.
+  Apply the same `30000–60000 ms` range before the first random action.
 - When two or more actions are cooldown-eligible, temporarily exclude the most
   recently started action. Allow it when it is the only eligible action rather than
   stalling the scheduler.
-- Let the scheduler select and queue an action, but let `PetRuntime` start it only
-  when the idle loop reaches its next cycle boundary. Keep boundary reporting in
-  `AnimationPlayer`; do not teach `BehaviorScheduler` about frames.
+- Let the scheduler select and queue an action. A static default pose is already a
+  safe transition point; a looping default waits for its next cycle boundary.
 - At the idle boundary, render the animation profile's neutral pose for the
   configured pre-action settle, then start the one-shot. After its authored final
   hold, render neutral for the configured post-action settle, restart idle at frame
@@ -225,6 +250,8 @@ Treat perceived rhythm as part of correctness, not incidental random tuning.
 - Implement each settle with one cancellable timeout followed by one
   `requestAnimationFrame` draw. Do not introduce a resident 60 FPS loop or alpha
   cross-fade by default; cross-fading non-aligned sprite poses can create ghosting.
+- A `direct` action skips both neutral settles. Use it only when artwork is authored
+  to join the default pose, as with the original six-frame blink cycle.
 
 ## Playback rules
 

@@ -380,6 +380,13 @@ function Test-DragAndFocus {
         [System.Windows.Forms.Application]::DoEvents()
         [void][PhoeboNativeSmoke]::SetForegroundWindow($focusProbe.Handle)
         Start-Sleep -Milliseconds 150
+        # Windows can reject SetForegroundWindow for a background automation
+        # process. The real invariant is that Phoebo must preserve whichever
+        # non-Phoebo process owned focus immediately before the drag.
+        $foregroundProcessIdBeforeDrag = [PhoeboNativeSmoke]::ForegroundProcessId()
+        Assert-SmokeCondition (
+            $foregroundProcessIdBeforeDrag -ne [uint32]$ProcessId
+        ) "Phoebo unexpectedly owned keyboard focus before dragging"
 
         $before = Get-MainWindowRectangle
         # Derive the hit point from the actual DPI-scaled native rectangle. This
@@ -433,7 +440,8 @@ function Test-DragAndFocus {
             "after=$($after.Left),$($after.Top)"
         )
         Assert-SmokeCondition (
-            [PhoeboNativeSmoke]::ForegroundProcessId() -eq [uint32]$PID
+            [PhoeboNativeSmoke]::ForegroundProcessId() -eq
+                $foregroundProcessIdBeforeDrag
         ) "Dragging Phoebo stole keyboard focus from the focus probe"
 
         return [PSCustomObject]@{

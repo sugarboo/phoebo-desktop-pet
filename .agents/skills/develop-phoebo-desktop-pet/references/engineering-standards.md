@@ -84,6 +84,7 @@ Development-only test and lint dependencies do not affect runtime size, but stil
 - Do not create a generic “execute” command.
 - Do not pass arbitrary paths from JavaScript into unrestricted Rust filesystem operations.
 - Keep OS-specific code in focused modules guarded by `cfg`.
+- Native Windows dragging releases WebView pointer capture. Use native window-move events for direction and a narrow `cfg(windows)` left-button query for release state; do not make DOM `pointermove` or `pointerup` the correctness path.
 - Return structured, serializable errors without internal secrets or absolute user paths when not needed.
 - Do not block the Tauri main thread with file decoding, waits, or long work.
 - Review `tauri.conf.json` and capability files in every platform-facing change.

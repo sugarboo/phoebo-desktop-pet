@@ -168,6 +168,16 @@ export class AnimationPlayer {
   }
 
   pause(): void {
+    if (this.playerStatus === "pose") {
+      // A pose has no frame-boundary timer, but its one presentation RAF may
+      // still be pending. Hidden/paused windows must own no browser callbacks.
+      this.cancelScheduledWork();
+      this.nextGeneration();
+      this.activePlayback = undefined;
+      this.playerStatus = "paused";
+      return;
+    }
+
     if (this.playerStatus !== "playing" || this.activePlayback === undefined) {
       return;
     }
@@ -184,7 +194,20 @@ export class AnimationPlayer {
   }
 
   resume(): void {
-    if (this.playerStatus !== "paused" || this.activePlayback === undefined) {
+    if (this.playerStatus !== "paused") {
+      return;
+    }
+
+    if (this.activePlayback === undefined) {
+      const pose = this.displayedFrame;
+      if (pose === undefined) {
+        this.playerStatus = "stopped";
+        return;
+      }
+
+      // showPose creates one fresh RAF and invalidates any callback captured
+      // before pause; it never arms a recurring frame timer.
+      this.showPose(pose);
       return;
     }
 

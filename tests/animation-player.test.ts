@@ -116,6 +116,30 @@ test("holds a pose without creating a frame-boundary timeout", () => {
   assertScheduling(timing, 0, 0);
 });
 
+test("pause cancels a pending pose RAF and resume redraws it exactly once", () => {
+  const timing = new FakeAnimationTiming();
+  const renderedFrames: AtlasFrame[] = [];
+  const player = new AnimationPlayer((frame) => renderedFrames.push(frame), timing);
+
+  player.playClip(POSE_CLIP);
+  const stalePoseFrame = timing.captureNextAnimationFrame();
+  player.pause();
+  assertEqual(player.status, "paused");
+  assertScheduling(timing, 0, 0);
+
+  player.resume();
+  assertEqual(player.status, "pose");
+  assertScheduling(timing, 0, 1);
+
+  stalePoseFrame();
+  assertDeepEqual(renderedFrames, []);
+  assertScheduling(timing, 0, 1);
+
+  timing.flushAnimationFrame();
+  assertDeepEqual(renderedFrames, [{ row: 9, column: 3, durationMs: 1 }]);
+  assertScheduling(timing, 0, 0);
+});
+
 test("cancellation prevents captured stale timer and RAF callbacks from rendering", () => {
   const timing = new FakeAnimationTiming();
   const renderedFrames: AtlasFrame[] = [];

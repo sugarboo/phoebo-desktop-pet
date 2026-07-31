@@ -13,6 +13,7 @@
     "src/app/deferred-redraw.ts",
     "src/app/desktop-control-subscription.ts",
     "src/app/disposer-stack.ts",
+    "src/app/drag-motion-controller.ts",
     "src/app/pet-runtime.ts",
     "src/app/runtime-activity-controller.ts",
     "src/behavior/**/*.ts",

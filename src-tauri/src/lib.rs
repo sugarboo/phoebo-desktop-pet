@@ -10,6 +10,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             desktop::hide_main_window,
             desktop::is_behavior_paused,
+            desktop::is_left_mouse_button_pressed,
             desktop::reset_main_window_position,
             desktop::set_main_window_always_on_top,
             desktop::show_main_window,

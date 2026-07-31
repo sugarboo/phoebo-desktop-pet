@@ -7,11 +7,13 @@ network feature.
 The application uses Tauri 2, vanilla TypeScript, Canvas 2D, and the operating
 system's WebView2 runtime. Phoebo's single RGBA WebP atlas is embedded in the
 release executable. The pet renders in a `120 × 130` logical-pixel viewport;
-each random one-shot action is sampled after `60–120` seconds of idle time.
+the default pose is the first idle frame, and the original blink cycle is one of
+the random one-shot actions sampled after `60–120` seconds of idle time.
 
 ## Controls
 
-- Drag Phoebo with the primary mouse button.
+- Drag Phoebo with the primary mouse button. Horizontal movement plays the matching
+  left/right locomotion loop; stopping or releasing returns to the static idle pose.
 - Use the tray menu to show or hide Phoebo.
 - Pause or resume random actions without hiding the window.
 - Reset Phoebo to the center of a reachable monitor work area.

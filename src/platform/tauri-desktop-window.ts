@@ -5,7 +5,9 @@ import type {
   DesktopControlEvent,
   DesktopControlSource,
   DesktopWindowAdapter,
+  NativeWindowPosition,
   StopDesktopControlSubscription,
+  StopDesktopWindowMoveSubscription,
 } from "./desktop-window-adapter";
 
 // This module is the narrow frontend-to-Tauri boundary. Rendering and animation
@@ -40,6 +42,29 @@ export class TauriDesktopWindowAdapter implements DesktopWindowAdapter {
     // Native dragging remains a Tauri window API because it operates on the
     // calling WebView and needs no custom Rust policy or payload.
     return petWindow.startDragging();
+  }
+
+  async isDragButtonPressed(): Promise<boolean> {
+    // Windows transfers pointer capture away from WebView2 during native dragging,
+    // so DOM `buttons` cannot reliably tell us when the physical left button lifts.
+    const pressed = await invoke<unknown>("is_left_mouse_button_pressed");
+    if (typeof pressed !== "boolean") {
+      throw new TypeError("Native drag-button state must be a boolean");
+    }
+    return pressed;
+  }
+
+  subscribeToWindowMoves(
+    listener: (position: NativeWindowPosition) => void,
+  ): Promise<StopDesktopWindowMoveSubscription> {
+    // Tauri reports physical window positions. Comparing only successive X signs
+    // remains correct across display scale changes and negative monitor origins.
+    return petWindow.onMoved(({ payload }) => {
+      listener({
+        physicalX: payload.x,
+        physicalY: payload.y,
+      });
+    });
   }
 
   resetToReachablePosition(): Promise<void> {

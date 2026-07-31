@@ -32,7 +32,9 @@ export type PetRuntimePhase =
   | "waiting-for-idle-boundary"
   | "settling-before-action"
   | "action"
-  | "settling-after-action";
+  | "settling-after-action"
+  | "drag-control";
+export type DragMotionDirection = "left" | "right";
 
 const SETTLE_BEFORE_CLIP_ID = "settle-before-action";
 const SETTLE_AFTER_CLIP_ID = "settle-after-action";
@@ -50,9 +52,14 @@ export class PetRuntime {
   private readonly defaultClip: AnimationClip;
   private readonly settleBeforeActionClip: AnimationClip | undefined;
   private readonly settleAfterActionClip: AnimationClip | undefined;
+  private readonly dragLeftClip: AnimationClip;
+  private readonly dragRightClip: AnimationClip;
+  private readonly reportFatalError: ((error: unknown) => void) | undefined;
   private runtimeStatus: PetRuntimeStatus = "stopped";
   private runtimePhase: PetRuntimePhase = "idle";
   private activeSelection: BehaviorActionSelection | undefined;
+  private dragControlActive = false;
+  private dragMotionDirection: DragMotionDirection | undefined;
   private fatalErrorReported = false;
 
   constructor(
@@ -65,6 +72,15 @@ export class PetRuntime {
       animationProfile.clips,
       behaviorProfile.defaultClipId,
     );
+    this.dragLeftClip = requireClip(
+      animationProfile.clips,
+      behaviorProfile.dragMotion.leftClipId,
+    );
+    this.dragRightClip = requireClip(
+      animationProfile.clips,
+      behaviorProfile.dragMotion.rightClipId,
+    );
+    this.reportFatalError = dependencies.onFatalError;
     this.settleBeforeActionClip = createSettleClip(
       SETTLE_BEFORE_CLIP_ID,
       animationProfile.atlas.neutralFrame,
@@ -148,10 +164,96 @@ export class PetRuntime {
     }
 
     this.runtimeStatus = "running";
-    // Resume the scheduler state before playback. If an action was active, its
-    // completion callback will then find the matching selection ready to complete.
+    if (this.dragControlActive) {
+      // Direct control owns the visual and deliberately leaves random scheduling
+      // stopped. AnimationPlayer resumes either the held pose or locomotion loop.
+      this.runtimePhase = "drag-control";
+      this.player.resume();
+      return;
+    }
+
+    if (this.scheduler.status === "stopped") {
+      // A drag can end while the native window is hidden or behavior is paused.
+      // Re-enter a fresh idle hold instead of resuming the interrupted action.
+      this.playIdle();
+      this.scheduler.start();
+      return;
+    }
+
+    // Resume the scheduler state before playback. If a random action was active,
+    // its completion callback then finds the matching selection ready to complete.
     this.scheduler.resume();
     this.player.resume();
+  }
+
+  /**
+   * Begin a high-priority owner interaction.
+   *
+   * Native dragging may start while a random action is pending, settling, or
+   * playing. Stop the scheduler (rather than pausing it) so replacing that clip
+   * cannot leave an action-active token with no future completion callback.
+   */
+  beginDragControl(): void {
+    if (this.runtimeStatus !== "running" || this.dragControlActive) {
+      return;
+    }
+
+    this.runInteractiveTransition(() => {
+      this.dragControlActive = true;
+      this.dragMotionDirection = undefined;
+      this.activeSelection = undefined;
+      this.scheduler.stop();
+      this.runtimePhase = "drag-control";
+      this.player.playClip(this.defaultClip);
+    });
+  }
+
+  setDragControlDirection(direction: DragMotionDirection | undefined): void {
+    if (!this.dragControlActive || this.dragMotionDirection === direction) {
+      return;
+    }
+
+    this.dragMotionDirection = direction;
+    if (this.runtimeStatus !== "running") {
+      return;
+    }
+
+    this.runInteractiveTransition(() => {
+      this.runtimePhase = "drag-control";
+      const clip =
+        direction === "left"
+          ? this.dragLeftClip
+          : direction === "right"
+            ? this.dragRightClip
+            : this.defaultClip;
+      this.player.playClip(clip);
+    });
+  }
+
+  endDragControl(): void {
+    if (!this.dragControlActive) {
+      return;
+    }
+
+    this.dragControlActive = false;
+    this.dragMotionDirection = undefined;
+    this.activeSelection = undefined;
+
+    if (this.runtimeStatus === "paused") {
+      // There is no scheduler state to resume because beginDragControl stopped it.
+      // Clear the locomotion clip; resume() will start a fresh idle delay.
+      this.player.cancel();
+      this.runtimePhase = "idle";
+      return;
+    }
+    if (this.runtimeStatus !== "running") {
+      return;
+    }
+
+    this.runInteractiveTransition(() => {
+      this.playIdle();
+      this.scheduler.start();
+    });
   }
 
   dispose(): void {
@@ -163,6 +265,8 @@ export class PetRuntime {
     // callback cannot start another animation during shutdown.
     this.runtimeStatus = "disposed";
     this.activeSelection = undefined;
+    this.dragControlActive = false;
+    this.dragMotionDirection = undefined;
     this.scheduler.dispose();
     this.player.dispose();
   }
@@ -179,6 +283,11 @@ export class PetRuntime {
 
     this.activeSelection = selection;
     this.runtimePhase = "waiting-for-idle-boundary";
+    if (this.defaultClip.playback === "pose") {
+      // A static pose is already a safe transition point. Waiting for a loop
+      // boundary that can never occur would strand the scheduler in pending state.
+      this.beginPendingActionTransition(selection.selectionId);
+    }
   }
 
   private handleIdleLoopBoundary(): void {
@@ -190,8 +299,23 @@ export class PetRuntime {
       return;
     }
 
-    const selectionId = this.activeSelection.selectionId;
-    if (this.settleBeforeActionClip === undefined) {
+    this.beginPendingActionTransition(this.activeSelection.selectionId);
+  }
+
+  private beginPendingActionTransition(selectionId: number): void {
+    const selection = this.activeSelection;
+    if (
+      this.runtimeStatus !== "running" ||
+      this.runtimePhase !== "waiting-for-idle-boundary" ||
+      selection?.selectionId !== selectionId
+    ) {
+      return;
+    }
+
+    if (
+      selection.action.transition === "direct" ||
+      this.settleBeforeActionClip === undefined
+    ) {
       this.startPendingAction(selectionId);
       return;
     }
@@ -238,7 +362,10 @@ export class PetRuntime {
       return;
     }
 
-    if (this.settleAfterActionClip === undefined) {
+    if (
+      this.activeSelection.action.transition === "direct" ||
+      this.settleAfterActionClip === undefined
+    ) {
       this.restoreIdle(selectionId);
       return;
     }
@@ -268,9 +395,13 @@ export class PetRuntime {
 
   private playIdle(): void {
     this.runtimePhase = "idle";
-    this.player.playClip(this.defaultClip, {
-      onLoopBoundary: () => this.handleIdleLoopBoundary(),
-    });
+    if (this.defaultClip.playback === "loop") {
+      this.player.playClip(this.defaultClip, {
+        onLoopBoundary: () => this.handleIdleLoopBoundary(),
+      });
+    } else {
+      this.player.playClip(this.defaultClip);
+    }
   }
 
   private failClosed(
@@ -286,6 +417,8 @@ export class PetRuntime {
     this.fatalErrorReported = true;
     this.runtimeStatus = "failed";
     this.activeSelection = undefined;
+    this.dragControlActive = false;
+    this.dragMotionDirection = undefined;
     this.scheduler.dispose();
     this.player.dispose();
 
@@ -303,6 +436,14 @@ export class PetRuntime {
     }
     if (this.runtimeStatus === "failed") {
       throw new Error("PetRuntime is failed");
+    }
+  }
+
+  private runInteractiveTransition(transition: () => void): void {
+    try {
+      transition();
+    } catch (error: unknown) {
+      this.failClosed(error, this.reportFatalError);
     }
   }
 }

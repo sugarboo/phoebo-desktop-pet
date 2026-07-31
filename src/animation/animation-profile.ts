@@ -15,6 +15,7 @@ export const CODEX_V2_ATLAS_CONTRACT = Object.freeze({
 
 export const CODEX_V2_CLIP_IDS = [
   "idle",
+  "blink",
   "walk-right",
   "walk-left",
   "wave",

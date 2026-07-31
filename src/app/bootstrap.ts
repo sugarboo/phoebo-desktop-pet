@@ -15,6 +15,7 @@ import { observeDevicePixelRatio } from "../rendering/device-pixel-ratio-monitor
 import { DeferredRedraw } from "./deferred-redraw";
 import { subscribeToDesktopControls } from "./desktop-control-subscription";
 import { disposeInReverseOrder } from "./disposer-stack";
+import { DragMotionController } from "./drag-motion-controller";
 import { loadDefaultPetAssets } from "./load-default-pet";
 import { PetRuntime } from "./pet-runtime";
 import { RuntimeActivityController } from "./runtime-activity-controller";
@@ -59,6 +60,7 @@ export async function bootstrapDesktopShell(): Promise<void> {
       renderFrame,
       desktopWindow,
       desktopControls,
+      loadedPet.behaviorProfile.dragMotion.stopDelayMs,
     );
     stopRuntime = lifecycle.stop;
 
@@ -100,6 +102,7 @@ async function installRuntimeLifecycle(
   renderFrame: AnimationFrameRenderer,
   desktopWindow: DesktopWindowAdapter,
   desktopControls: DesktopControlSource,
+  dragStopDelayMs: number,
 ): Promise<InstalledRuntimeLifecycle> {
   const deferredPixelRatioRedraw = new DeferredRedraw(() => {
     try {
@@ -108,13 +111,30 @@ async function installRuntimeLifecycle(
       reportShellErrorOnce("pixel-ratio-redraw", error);
     }
   });
-  const activity = new RuntimeActivityController(runtime, (runtimeAllowedToRun) => {
-    deferredPixelRatioRedraw.setEnabled(runtimeAllowedToRun);
-  });
+  const dragMotion = new DragMotionController(
+    runtime,
+    dragStopDelayMs,
+    () => desktopWindow.isDragButtonPressed(),
+    {
+      onError: (error) => reportShellErrorOnce("drag-button-state", error),
+    },
+  );
+  const activity = new RuntimeActivityController(
+    runtime,
+    (runtimeAllowedToRun) => {
+      deferredPixelRatioRedraw.setEnabled(runtimeAllowedToRun);
+      if (!runtimeAllowedToRun) {
+        // Hidden, explicitly paused, or suspended windows must not retain the
+        // interaction timer or a locomotion animation.
+        dragMotion.endDrag();
+      }
+    },
+  );
   activity.setDocumentVisible(!document.hidden);
   const disposers: Array<() => void> = [];
 
   try {
+    disposers.push(() => dragMotion.dispose());
     // Subscribe before reading the initial value so a tray click during atlas
     // decoding cannot be lost between the snapshot and listener registration.
     disposers.push(
@@ -134,7 +154,12 @@ async function installRuntimeLifecycle(
         deferredPixelRatioRedraw.request();
       }),
     );
-    disposers.push(installWindowDragging(canvas, desktopWindow));
+    disposers.push(
+      await desktopWindow.subscribeToWindowMoves((position) => {
+        dragMotion.observeWindowPosition(position);
+      }),
+    );
+    disposers.push(installWindowDragging(canvas, desktopWindow, dragMotion));
     disposers.push(installVisibilityRuntime(activity));
 
     let stopped = false;
@@ -185,6 +210,7 @@ function installVisibilityRuntime(activity: RuntimeActivityController): () => vo
 function installWindowDragging(
   canvas: HTMLCanvasElement,
   desktopWindow: DesktopWindowAdapter,
+  dragMotion: DragMotionController,
 ): () => void {
   const startDragging = (event: PointerEvent): void => {
     if (event.button !== 0) {
@@ -192,16 +218,29 @@ function installWindowDragging(
     }
 
     event.preventDefault();
+    dragMotion.beginDrag();
     // An undecorated Tauri window has no native title bar. Forwarding a primary
     // pointer press asks the operating system to perform its normal window drag.
     void desktopWindow.startDragging().catch((error: unknown) => {
+      dragMotion.endDrag();
       reportShellErrorOnce("window-drag", error);
     });
   };
+  const endDragging = (event: PointerEvent): void => {
+    if (event.type === "pointercancel" || event.button === 0) {
+      // This is a fast path when the WebView happens to receive release/cancel.
+      // The native button-state check remains the correctness path on Windows.
+      dragMotion.endDrag();
+    }
+  };
 
   canvas.addEventListener("pointerdown", startDragging);
+  window.addEventListener("pointerup", endDragging, true);
+  window.addEventListener("pointercancel", endDragging, true);
   return () => {
     canvas.removeEventListener("pointerdown", startDragging);
+    window.removeEventListener("pointerup", endDragging, true);
+    window.removeEventListener("pointercancel", endDragging, true);
   };
 }
 

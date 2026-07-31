@@ -147,11 +147,11 @@ function buildInspectionCases(profile: AnimationProfile): readonly InspectionCas
 }
 
 function assertInspectionCases(cases: readonly InspectionCase[]): void {
-  assertEqual(cases.length, 74, "Expected neutral + 57 timed + 16 direction cases");
+  assertEqual(cases.length, 75, "Expected neutral + 58 timed + 16 direction cases");
   assertEqual(
     new Set(cases.map(({ frame }) => frameKey(frame))).size,
     74,
-    "Every configured inspection case must use a unique atlas cell",
+    "Idle and blink may share r0 c0; every other configured cell stays unique",
   );
 }
 

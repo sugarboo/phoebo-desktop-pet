@@ -5,8 +5,14 @@ Windows 10/11 and uses the system-installed Microsoft Edge WebView2 runtime.
 WebView2 is not downloaded, bootstrapped, or embedded by Phoebo.
 
 Phoebo renders in a `120 × 130` logical-pixel window. Random one-shot actions
-use a newly sampled `60–120` second idle interval; starting at the next safe idle
-loop boundary can add at most one idle cycle to that delay.
+use a newly sampled `60–120` second idle interval. The default pose is static, so
+the selected action can start immediately at that safe pose. The original
+six-frame idle cycle is now the separately weighted `blink` action.
+
+Hold the primary mouse button while moving Phoebo horizontally to play the
+matching left/right locomotion loop. Stopping for about `140 ms` returns to static
+idle; movement can resume while the button remains held. Releasing ends direct
+control and samples a fresh random-action interval.
 
 ## Portable contents
 
@@ -32,9 +38,12 @@ pet asset is required. Extract the ZIP and run `Phoebo.exe`.
 ## Security and privacy
 
 Phoebo loads only packaged local assets. Its Tauri capability grants the main
-window only native dragging and receiving the two internal lifecycle events needed
-by the tray. There is no filesystem, shell, process, HTTP, clipboard, updater, or
-Codex permission.
+window only native dragging and receiving the internal lifecycle/window-move
+events needed by the tray and drag controller. One narrow Windows-only command
+reads whether the physical left mouse button is currently pressed because native
+dragging releases WebView pointer capture. It exposes no cursor coordinates or
+general input access. There is no filesystem, shell, process, HTTP, clipboard,
+updater, or Codex permission.
 
 The frontend has no network API. The Windows WebView2 host is started with
 `--disable-background-networking` and `--disable-component-update`; the latter is

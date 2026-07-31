@@ -26,7 +26,7 @@ import {
 
 const animationProfile = parseAnimationProfile(animationProfileDocument as unknown);
 
-test("queues at an idle boundary and applies neutral settles around the action", () => {
+test("starts from a static idle pose and applies neutral settles around an action", () => {
   const behaviorProfile = createBehaviorProfile(500);
   const environment = new FakeRuntimeEnvironment();
   const renderedFrames: Array<{ readonly atMs: number; readonly pose: string }> = [];
@@ -43,39 +43,36 @@ test("queues at an idle boundary and applies neutral settles around the action",
   );
 
   runtime.start();
-  environment.runUntil(
-    () => runtime.phase === "waiting-for-idle-boundary",
-    100,
-  );
-  assertEqual(environment.now(), 500);
-  assertEqual(runtime.currentFrame?.column, 2);
+  environment.runNextEvent();
+  assertDeepEqual(renderedFrames.at(-1), { atMs: 0, pose: "0:0" });
+  assertEqual(environment.timerCount, 1);
 
   environment.runUntil(
     () => runtime.phase === "settling-before-action",
     100,
   );
-  assertEqual(environment.now(), 1100);
+  assertEqual(environment.now(), 500);
   environment.runNextEvent();
-  assertDeepEqual(renderedFrames.at(-1), { atMs: 1100, pose: "0:6" });
+  assertDeepEqual(renderedFrames.at(-1), { atMs: 500, pose: "0:6" });
 
   environment.runUntil(() => runtime.phase === "action", 100);
-  assertEqual(environment.now(), 1220);
+  assertEqual(environment.now(), 620);
   environment.runNextEvent();
-  assertDeepEqual(renderedFrames.at(-1), { atMs: 1220, pose: "3:0" });
+  assertDeepEqual(renderedFrames.at(-1), { atMs: 620, pose: "3:0" });
 
   environment.runUntil(
     () => runtime.phase === "settling-after-action",
     100,
   );
-  assertEqual(environment.now(), 1920);
+  assertEqual(environment.now(), 1320);
   environment.runNextEvent();
-  assertDeepEqual(renderedFrames.at(-1), { atMs: 1920, pose: "0:6" });
+  assertDeepEqual(renderedFrames.at(-1), { atMs: 1320, pose: "0:6" });
 
   environment.runUntil(() => runtime.phase === "idle", 100);
-  assertEqual(environment.now(), 2100);
+  assertEqual(environment.now(), 1500);
   assertEqual(environment.nextTimerDelayMs, 500);
   environment.runNextEvent();
-  assertDeepEqual(renderedFrames.at(-1), { atMs: 2100, pose: "0:0" });
+  assertDeepEqual(renderedFrames.at(-1), { atMs: 1500, pose: "0:0" });
 
   assertEqual(runtime.status, "running");
   assertEqual(runtime.currentFrame?.row, 0);
@@ -90,7 +87,6 @@ test("queues at an idle boundary and applies neutral settles around the action",
 
 test("pause and resume preserve every queued and transition phase without hidden work", () => {
   const phases = [
-    "waiting-for-idle-boundary",
     "settling-before-action",
     "action",
     "settling-after-action",
@@ -134,6 +130,47 @@ test("pause and resume preserve every queued and transition phase without hidden
     assertEqual(environment.timerCount, 0);
     assertEqual(environment.animationFrameCount, 0);
   }
+});
+
+test("drag control interrupts random work, switches direction, and resamples on release", () => {
+  const environment = new FakeRuntimeEnvironment();
+  const renderedFrames: AtlasFrame[] = [];
+  const runtime = createRuntime(
+    createBehaviorProfile(500),
+    environment,
+    new SequenceRandomSource([0, 0]),
+    (frame) => renderedFrames.push(frame),
+  );
+
+  runtime.start();
+  environment.runNextEvent();
+  runtime.beginDragControl();
+  runtime.setDragControlDirection("right");
+  environment.runNextEvent();
+  assertEqual(runtime.phase, "drag-control");
+  assertEqual(runtime.currentFrame?.row, 1);
+
+  runtime.setDragControlDirection(undefined);
+  environment.runNextEvent();
+  assertEqual(runtime.currentFrame?.row, 0);
+  assertEqual(runtime.currentFrame?.column, 0);
+  assertEqual(environment.timerCount, 0);
+
+  runtime.setDragControlDirection("left");
+  environment.runNextEvent();
+  assertEqual(runtime.currentFrame?.row, 2);
+
+  runtime.endDragControl();
+  environment.runNextEvent();
+  assertEqual(runtime.phase, "idle");
+  assertEqual(runtime.currentFrame?.row, 0);
+  assertEqual(runtime.currentFrame?.column, 0);
+  assertEqual(environment.nextTimerDelayMs, 500);
+  assert(environment.maximumTimerCount <= 2, "Drag work must keep timers bounded");
+
+  runtime.dispose();
+  assertEqual(environment.timerCount, 0);
+  assertEqual(environment.animationFrameCount, 0);
 });
 
 test("zero settle durations take the direct action path without a neutral pose", () => {
@@ -258,11 +295,12 @@ test("runs thirty virtual minutes without a stuck action or multiplied callbacks
   );
   const environment = new FakeRuntimeEnvironment();
   const observer = new SoakObserver();
-  const runtime = createRuntime(
+  let runtime: PetRuntime;
+  runtime = createRuntime(
     behaviorProfile,
     environment,
     new SeededRandomSource(0x5eed),
-    (frame) => observer.observe(frame),
+    () => observer.observe(runtime.phase),
   );
 
   runtime.start();
@@ -275,7 +313,8 @@ test("runs thirty virtual minutes without a stuck action or multiplied callbacks
   );
 
   assertEqual(runtime.status, "running");
-  assert(observer.renderCount > 1_000, "Soak should exercise many frame boundaries");
+  assert(observer.renderCount > 60, "Soak should exercise repeated one-shot frames");
+  assert(observer.renderCount < 500, "Static idle must avoid continuous frame wake-ups");
   // A 60–120 second cadence intentionally produces far fewer actions than the
   // earlier rapid profile, but a thirty-minute virtual soak still covers many
   // complete idle -> action -> idle transitions.
@@ -324,7 +363,7 @@ function createBehaviorProfile(
 ): BehaviorProfile {
   return parseBehaviorProfile(
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       id: "runtime-test",
       defaultClipId: "idle",
       idleDelayMs: {
@@ -336,12 +375,18 @@ function createBehaviorProfile(
         settleBeforeActionMs,
         settleAfterActionMs,
       },
+      dragMotion: {
+        leftClipId: "walk-left",
+        rightClipId: "walk-right",
+        stopDelayMs: 140,
+      },
       actions: [
         {
           clipId: "wave",
           weight: 1,
           cooldownMs: 0,
           interruptible: false,
+          transition: "settled",
         },
       ],
     },
@@ -371,17 +416,17 @@ class SoakObserver {
   renderCount = 0;
   actionStarts = 0;
   actionCompletions = 0;
-  private lastKind: "idle" | "action" | undefined;
+  private actionVisible = false;
 
-  observe(frame: AtlasFrame): void {
-    const kind = frame.row === 0 ? "idle" : "action";
+  observe(phase: PetRuntime["phase"]): void {
     this.renderCount += 1;
-    if (kind === "action" && this.lastKind === "idle") {
+    if (phase === "action" && !this.actionVisible) {
       this.actionStarts += 1;
-    } else if (kind === "idle" && this.lastKind === "action") {
+      this.actionVisible = true;
+    } else if (phase === "idle" && this.actionVisible) {
       this.actionCompletions += 1;
+      this.actionVisible = false;
     }
-    this.lastKind = kind;
   }
 }
 

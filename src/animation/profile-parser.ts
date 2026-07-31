@@ -194,6 +194,9 @@ function parseClips(input: unknown, atlas: AtlasGeometry): Readonly<Record<strin
     const frames = frameDocuments.map((frameDocument, frameIndex) =>
       parseTimedFrame(frameDocument, `${clipPath}.frames[${frameIndex}]`, atlas),
     );
+    if (playbackValue === "pose" && frames.length !== 1) {
+      fail(`${clipPath}.frames`, "pose clips must contain exactly one frame");
+    }
 
     clips[clipId] = Object.freeze({
       id: clipId,

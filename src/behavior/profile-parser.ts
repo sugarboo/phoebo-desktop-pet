@@ -2,8 +2,10 @@ import type { AnimationProfile } from "../animation/animation-profile.js";
 import {
   BEHAVIOR_PROFILE_SCHEMA_VERSION,
   type BehaviorAction,
+  type BehaviorActionTransition,
   type BehaviorCadence,
   type BehaviorProfile,
+  type DragMotionBehavior,
   type IdleDelayRange,
 } from "./behavior-profile.js";
 
@@ -16,6 +18,7 @@ const TOP_LEVEL_KEYS = [
   "defaultClipId",
   "idleDelayMs",
   "cadence",
+  "dragMotion",
   "actions",
 ] as const;
 const IDLE_DELAY_KEYS = ["minimum", "maximum"] as const;
@@ -24,8 +27,20 @@ const CADENCE_KEYS = [
   "settleBeforeActionMs",
   "settleAfterActionMs",
 ] as const;
-const ACTION_KEYS = ["clipId", "weight", "cooldownMs", "interruptible"] as const;
+const DRAG_MOTION_KEYS = ["leftClipId", "rightClipId", "stopDelayMs"] as const;
+const ACTION_KEYS = [
+  "clipId",
+  "weight",
+  "cooldownMs",
+  "interruptible",
+  "transition",
+] as const;
+const ACTION_TRANSITION_VALUES: readonly BehaviorActionTransition[] = [
+  "settled",
+  "direct",
+];
 const MAXIMUM_SETTLE_DURATION_MS = 500;
+const MAXIMUM_DRAG_STOP_DELAY_MS = 500;
 
 export class BehaviorProfileValidationError extends Error {
   readonly path: string;
@@ -67,8 +82,11 @@ export function parseBehaviorProfile(
   if (defaultClip === undefined) {
     fail(`${path}.defaultClipId`, `animation clip "${defaultClipId}" does not exist`);
   }
-  if (defaultClip.playback !== "loop") {
-    fail(`${path}.defaultClipId`, "must reference a looping animation clip");
+  if (defaultClip.playback === "once") {
+    fail(
+      `${path}.defaultClipId`,
+      "must reference a persistent loop or pose animation clip",
+    );
   }
 
   const idleDelayMs = parseIdleDelay(
@@ -78,6 +96,11 @@ export function parseBehaviorProfile(
   const cadence = parseCadence(
     readRequired(document, "cadence", path),
     `${path}.cadence`,
+  );
+  const dragMotion = parseDragMotion(
+    readRequired(document, "dragMotion", path),
+    `${path}.dragMotion`,
+    animationProfile,
   );
   const actions = parseActions(
     readRequired(document, "actions", path),
@@ -91,6 +114,7 @@ export function parseBehaviorProfile(
     defaultClipId,
     idleDelayMs,
     cadence,
+    dragMotion,
     actions,
   });
 }
@@ -135,6 +159,46 @@ function parseCadence(input: unknown, path: string): BehaviorCadence {
     avoidImmediateRepeat,
     settleBeforeActionMs,
     settleAfterActionMs,
+  });
+}
+
+function parseDragMotion(
+  input: unknown,
+  path: string,
+  animationProfile: AnimationProfile,
+): DragMotionBehavior {
+  const dragMotion = expectRecord(input, path);
+  assertExactKeys(dragMotion, DRAG_MOTION_KEYS, path);
+
+  const leftClipId = parseLoopingClipId(
+    readRequired(dragMotion, "leftClipId", path),
+    `${path}.leftClipId`,
+    animationProfile,
+  );
+  const rightClipId = parseLoopingClipId(
+    readRequired(dragMotion, "rightClipId", path),
+    `${path}.rightClipId`,
+    animationProfile,
+  );
+  if (leftClipId === rightClipId) {
+    fail(`${path}.rightClipId`, "must differ from leftClipId");
+  }
+
+  const stopDelayMs = expectPositiveFiniteNumber(
+    readRequired(dragMotion, "stopDelayMs", path),
+    `${path}.stopDelayMs`,
+  );
+  if (stopDelayMs > MAXIMUM_DRAG_STOP_DELAY_MS) {
+    fail(
+      `${path}.stopDelayMs`,
+      `must be no greater than ${MAXIMUM_DRAG_STOP_DELAY_MS}`,
+    );
+  }
+
+  return Object.freeze({
+    leftClipId,
+    rightClipId,
+    stopDelayMs,
   });
 }
 
@@ -185,12 +249,23 @@ function parseActions(
       readRequired(action, "interruptible", actionPath),
       `${actionPath}.interruptible`,
     );
+    const transitionValue = expectString(
+      readRequired(action, "transition", actionPath),
+      `${actionPath}.transition`,
+    );
+    if (!isActionTransition(transitionValue)) {
+      fail(
+        `${actionPath}.transition`,
+        `expected one of ${ACTION_TRANSITION_VALUES.join(", ")}, received "${transitionValue}"`,
+      );
+    }
 
     return Object.freeze({
       clipId,
       weight,
       cooldownMs,
       interruptible,
+      transition: transitionValue,
     });
   });
 
@@ -202,6 +277,22 @@ function parseActions(
   }
 
   return Object.freeze(actions);
+}
+
+function parseLoopingClipId(
+  input: unknown,
+  path: string,
+  animationProfile: AnimationProfile,
+): string {
+  const clipId = expectIdentifier(input, path);
+  const clip = animationProfile.clips[clipId];
+  if (clip === undefined) {
+    fail(path, `animation clip "${clipId}" does not exist`);
+  }
+  if (clip.playback !== "loop") {
+    fail(path, "must reference a looping animation clip");
+  }
+  return clipId;
 }
 
 function expectRecord(value: unknown, path: string): UnknownRecord {
@@ -282,6 +373,10 @@ function expectBoolean(value: unknown, path: string): boolean {
     fail(path, "expected a boolean");
   }
   return value;
+}
+
+function isActionTransition(value: string): value is BehaviorActionTransition {
+  return ACTION_TRANSITION_VALUES.some((transition) => transition === value);
 }
 
 function assertExactKeys(

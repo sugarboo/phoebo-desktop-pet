@@ -136,11 +136,14 @@ calm and clip changes do not interrupt idle motion abruptly.
 ### Tasks
 
 - Implement the cadence and transition policy from `animation-contract.md`.
-- Upgrade the behavior profile to schema version 2 and use a `60000–120000 ms`
+- Upgrade the behavior profile to schema version 2 and use a `30000–60000 ms`
   default idle-delay range.
 - Suppress an immediate repeat when another cooldown-eligible action exists.
-- Let `AnimationPlayer` report an idle-loop boundary without importing behavior
-  concepts; let `PetRuntime` own pending-action and neutral-settle transitions.
+- Let a static default pose act as an immediate safe boundary. Preserve
+  `AnimationPlayer` loop-boundary reporting for future looping defaults without
+  importing behavior concepts.
+- Split the original idle cycle into a static `idle` pose and random one-shot
+  `blink`; configure direct transitions for clips authored against that pose.
 - Start cooldown accounting when action playback begins.
 - Add deterministic tests for boundary queuing, repeat suppression, settle
   cancellation, pause/resume, stale callbacks, and zero-duration settle fallback.
@@ -169,6 +172,9 @@ Make the pet practical for daily self-use.
 
 - Implement `DesktopWindowAdapter`.
 - Enable drag behavior without requiring animation modules to call Tauri.
+- Derive left/right locomotion from native physical window positions, return to
+  idle after the configured stop delay, and query the Windows left button through
+  one narrow platform command because native dragging releases WebView capture.
 - Add tray actions: show/hide, pause/resume, reset position, always-on-top, quit.
 - Clamp position to a reachable work area after launch and monitor changes.
 - Decide whether focusable behavior needs a Windows-specific adjustment based on runtime testing.
@@ -179,6 +185,8 @@ Make the pet practical for daily self-use.
 
 - The pet does not unexpectedly capture keyboard focus during ordinary use.
 - Dragging works from visible character areas and does not leave the pet unreachable.
+- Horizontal drag shows the matching locomotion loop; stopping, releasing, hiding,
+  or pausing returns to static idle without leaving random behavior suspended.
 - Tray actions remain available after repeated hide/show cycles.
 - Resolution, DPI, and monitor changes preserve a reachable window.
 - Quit ends all application processes promptly.

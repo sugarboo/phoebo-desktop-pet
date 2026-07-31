@@ -88,6 +88,7 @@ Own lifecycle and orchestration only:
 4. Start the player and behavior scheduler.
 5. Forward pause, resume, visibility, and shutdown events.
 6. Own pending-action and configured neutral-settle transitions.
+7. Let explicit drag control cancel pending/active random state, own the locomotion clip, and begin a freshly sampled idle hold after release.
 
 Do not let it calculate frame coordinates or weighted random choices.
 
@@ -141,6 +142,8 @@ export interface DesktopWindowAdapter {
   hide(): Promise<void>;
   setAlwaysOnTop(enabled: boolean): Promise<void>;
   startDragging(): Promise<void>;
+  isDragButtonPressed(): Promise<boolean>;
+  subscribeToWindowMoves(listener): Promise<() => void>;
   resetToReachablePosition(): Promise<void>;
 }
 ```
@@ -203,13 +206,28 @@ idle hold
   -> filter cooldown-eligible actions
   -> weighted selection
   -> queue pending action
-  -> next idle-loop boundary
+  -> static default pose immediately, or next loop boundary for a looping default
   -> neutral pre-settle
   -> confirm action start and run clip
   -> one completion event
   -> neutral post-settle
   -> default idle clip
   -> schedule next hold
+```
+
+The configured `blink` uses a direct transition because its first frame is the
+static idle pose and its six frames are the original authored idle cycle.
+
+### Owner drag
+
+```text
+primary pointer down
+  -> stop random scheduler and discard any pending/active selection
+  -> native Tauri window drag
+  -> successive physical X positions select walk-left or walk-right
+  -> configured stationary delay restores the static idle pose
+  -> Windows left-button query keeps the session resumable while held
+  -> release ends direct control and samples a fresh 60–120 second idle hold
 ```
 
 Use a generation token or cancellation handle so a stale timeout or completion callback cannot start an action after pause, hide, or shutdown.

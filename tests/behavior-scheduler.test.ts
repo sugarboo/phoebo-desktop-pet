@@ -25,6 +25,7 @@ interface ActionDocument {
   readonly weight: number;
   readonly cooldownMs: number;
   readonly interruptible: boolean;
+  readonly transition: "settled" | "direct";
 }
 
 const animationProfile = parseAnimationProfile(animationProfileDocument as unknown);
@@ -397,7 +398,13 @@ function action(
   cooldownMs = 0,
   interruptible = true,
 ): ActionDocument {
-  return { clipId, weight, cooldownMs, interruptible };
+  return {
+    clipId,
+    weight,
+    cooldownMs,
+    interruptible,
+    transition: "settled",
+  };
 }
 
 function createTestProfile(
@@ -407,7 +414,7 @@ function createTestProfile(
 ): BehaviorProfile {
   return parseBehaviorProfile(
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       id: "test",
       defaultClipId: "idle",
       idleDelayMs: {
@@ -418,6 +425,11 @@ function createTestProfile(
         avoidImmediateRepeat: true,
         settleBeforeActionMs: 120,
         settleAfterActionMs: 180,
+      },
+      dragMotion: {
+        leftClipId: "walk-left",
+        rightClipId: "walk-right",
+        stopDelayMs: 140,
       },
       actions,
     },

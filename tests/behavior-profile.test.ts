@@ -21,14 +21,19 @@ test("parses the default behavior profile and keeps tuning outside executable co
     animationProfile,
   );
 
-  assertEqual(profile.schemaVersion, 2);
+  assertEqual(profile.schemaVersion, 3);
   assertEqual(profile.id, "default");
   assertEqual(profile.defaultClipId, "idle");
-  assertDeepEqual(profile.idleDelayMs, { minimum: 60000, maximum: 120000 });
+  assertDeepEqual(profile.idleDelayMs, { minimum: 30000, maximum: 60000 });
   assertDeepEqual(profile.cadence, {
     avoidImmediateRepeat: true,
     settleBeforeActionMs: 120,
     settleAfterActionMs: 180,
+  });
+  assertDeepEqual(profile.dragMotion, {
+    leftClipId: "walk-left",
+    rightClipId: "walk-right",
+    stopDelayMs: 140,
   });
   assertDeepEqual(
     profile.actions.map((action) => [
@@ -36,12 +41,14 @@ test("parses the default behavior profile and keeps tuning outside executable co
       action.weight,
       action.cooldownMs,
       action.interruptible,
+      action.transition,
     ]),
     [
-      ["wave", 18, 12000, false],
-      ["jump", 12, 15000, false],
-      ["waiting", 30, 6000, true],
-      ["inspect", 20, 9000, true],
+      ["wave", 18, 12000, false, "settled"],
+      ["jump", 12, 15000, false, "settled"],
+      ["waiting", 30, 6000, true, "settled"],
+      ["inspect", 20, 9000, true, "settled"],
+      ["blink", 20, 0, true, "direct"],
     ],
   );
 });
@@ -99,6 +106,20 @@ test("rejects invalid behavior timing and weights with exact field paths", () =>
     () => parseBehaviorProfile(unknownCadenceField, animationProfile),
     "behaviorProfile.cadence.crossfadeMs",
   );
+
+  const excessiveDragStop = structuredClone(behaviorProfileDocument);
+  excessiveDragStop.dragMotion.stopDelayMs = 501;
+  assertThrows(
+    () => parseBehaviorProfile(excessiveDragStop as unknown, animationProfile),
+    "behaviorProfile.dragMotion.stopDelayMs",
+  );
+
+  const nonLoopingDragClip = structuredClone(behaviorProfileDocument);
+  nonLoopingDragClip.dragMotion.leftClipId = "wave";
+  assertThrows(
+    () => parseBehaviorProfile(nonLoopingDragClip as unknown, animationProfile),
+    "must reference a looping animation clip",
+  );
 });
 
 test("rejects missing, looping, and duplicate action clip references", () => {
@@ -123,10 +144,10 @@ test("rejects missing, looping, and duplicate action clip references", () => {
     'duplicate action clip "wave"',
   );
 
-  const nonLoopingDefault = structuredClone(behaviorProfileDocument);
-  nonLoopingDefault.defaultClipId = "wave";
+  const oneShotDefault = structuredClone(behaviorProfileDocument);
+  oneShotDefault.defaultClipId = "wave";
   assertThrows(
-    () => parseBehaviorProfile(nonLoopingDefault as unknown, animationProfile),
-    "must reference a looping animation clip",
+    () => parseBehaviorProfile(oneShotDefault as unknown, animationProfile),
+    "must reference a persistent loop or pose animation clip",
   );
 });

@@ -137,8 +137,17 @@ $viewportConfig = Get-Content -Raw -LiteralPath (
 $behaviorConfig = Get-Content -Raw -LiteralPath (
     Join-Path $projectRoot "src\config\behaviors\default.behavior.json"
 ) | ConvertFrom-Json
+$animationConfig = Get-Content -Raw -LiteralPath (
+    Join-Path $projectRoot "src\config\animation-profiles\codex-v2.animations.json"
+) | ConvertFrom-Json
 $desktopSource = Get-Content -Raw -LiteralPath (
     Join-Path $projectRoot "src-tauri\src\desktop.rs"
+)
+$tauriLibrarySource = Get-Content -Raw -LiteralPath (
+    Join-Path $projectRoot "src-tauri\src\lib.rs"
+)
+$cargoManifestSource = Get-Content -Raw -LiteralPath (
+    Join-Path $projectRoot "src-tauri\Cargo.toml"
 )
 $indexSource = Get-Content -Raw -LiteralPath (
     Join-Path $projectRoot "index.html"
@@ -174,9 +183,41 @@ Assert-ReleaseCondition (
     $mainWindow.skipTaskbar -eq $true
 ) "Main window or Canvas no longer matches the reviewed 120 x 130 no-activate policy"
 Assert-ReleaseCondition (
-    $behaviorConfig.idleDelayMs.minimum -eq 60000 -and
-    $behaviorConfig.idleDelayMs.maximum -eq 120000
-) "Default random-action delay must stay within the reviewed 60–120 second range"
+    $behaviorConfig.schemaVersion -eq 3 -and
+    $behaviorConfig.idleDelayMs.minimum -eq 30000 -and
+    $behaviorConfig.idleDelayMs.maximum -eq 60000 -and
+    $behaviorConfig.dragMotion.leftClipId -eq "walk-left" -and
+    $behaviorConfig.dragMotion.rightClipId -eq "walk-right" -and
+    $behaviorConfig.dragMotion.stopDelayMs -eq 140
+) "Default behavior must retain schema v3, 60–120 second cadence, and reviewed drag motion"
+$blinkAction = @(
+    $behaviorConfig.actions | Where-Object clipId -eq "blink"
+)
+Assert-ReleaseCondition (
+    $blinkAction.Count -eq 1 -and
+    $blinkAction[0].weight -eq 20 -and
+    $blinkAction[0].cooldownMs -eq 0 -and
+    $blinkAction[0].transition -eq "direct"
+) "Blink must remain the reviewed direct random action"
+$idleFrames = @($animationConfig.clips.idle.frames)
+$blinkFrames = @($animationConfig.clips.blink.frames)
+$blinkCoordinates = @(
+    $blinkFrames | ForEach-Object { "$($_.row):$($_.column):$($_.durationMs)" }
+) -join ","
+Assert-ReleaseCondition (
+    $animationConfig.clips.idle.playback -eq "pose" -and
+    $idleFrames.Count -eq 1 -and
+    $idleFrames[0].row -eq 0 -and
+    $idleFrames[0].column -eq 0 -and
+    $animationConfig.clips.blink.playback -eq "once" -and
+    $blinkCoordinates -eq "0:0:280,0:1:110,0:2:110,0:3:140,0:4:140,0:5:320"
+) "Idle must be static r0c0 and blink must retain the original six-frame cycle"
+Assert-ReleaseCondition (
+    $desktopSource -match 'pub fn is_left_mouse_button_pressed\(\) -> bool' -and
+    $tauriLibrarySource -match 'desktop::is_left_mouse_button_pressed' -and
+    $cargoManifestSource -match '\[target\.''cfg\(target_os = "windows"\)''\.dependencies\]' -and
+    $cargoManifestSource -match 'windows-sys = .*Win32_UI_Input_KeyboardAndMouse'
+) "Release must retain the narrow Windows drag-button state boundary"
 
 # Supplying additional browser arguments replaces Wry's own default string.
 # Verify both Phoebo's no-background-network policy and every Wry default that

@@ -15,6 +15,11 @@ tauri-build = { version = "~2.6.3", features = [] }
 [dependencies]
 tauri = { version = "~2.11.5", features = ["tray-icon"] }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+# Tauri's native drag releases WebView pointer capture. Reading the physical left
+# button is the narrow Windows seam that lets the frontend detect drag completion.
+windows-sys = { version = "0.61.2", features = ["Win32_UI_Input_KeyboardAndMouse"] }
+
 [profile.release]
 panic = "abort"
 codegen-units = 1

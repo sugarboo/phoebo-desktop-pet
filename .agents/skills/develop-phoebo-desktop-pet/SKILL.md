@@ -58,7 +58,8 @@ Read each selected reference completely before planning or changing code.
 - Render through one Canvas and one decoded atlas; avoid DOM nodes per frame.
 - Schedule near the next frame boundary, then draw once with `requestAnimationFrame` and elapsed-time correction. Do not keep a 60 FPS loop alive between sprite changes.
 - Schedule random actions with one cancellable timeout. Pause animation and polling while hidden or suspended.
-- Treat cadence and transition feel as configured product behavior: keep meaningful idle time, avoid an immediate repeat when another action is eligible, and queue actions until a safe idle-loop boundary.
+- Treat cadence and transition feel as configured product behavior: keep meaningful idle time, avoid an immediate repeat when another action is eligible, and start at a safe default-state boundary. A static pose is already safe; a looping default waits for its next loop boundary.
+- Treat primary-button drag locomotion as a higher-priority owner interaction. Derive direction from native physical window movement, return to the static default pose after the configured stop delay, cancel random action state instead of leaving it paused, and resample the idle delay after release.
 - Use a short configured neutral settle pose for clip transitions when visual QA confirms it helps. Schedule each settle as one timeout plus one draw; do not add a continuous cross-fade loop by default.
 - Add runtime dependencies only when a current milestone needs them. Prefer small local code over a package for trivial parsing, weighting, or state transitions.
 - Keep logging bounded and disable verbose logs in release builds.

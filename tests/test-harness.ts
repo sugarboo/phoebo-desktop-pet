@@ -1,11 +1,11 @@
 interface TestCase {
   readonly name: string;
-  readonly body: () => void;
+  readonly body: () => void | Promise<void>;
 }
 
 const testCases: TestCase[] = [];
 
-export function test(name: string, body: () => void): void {
+export function test(name: string, body: () => void | Promise<void>): void {
   testCases.push({ name, body });
 }
 
@@ -45,12 +45,12 @@ export function assertThrows(body: () => void, expectedMessagePart: string): voi
   throw new Error(`Expected an error containing "${expectedMessagePart}"`);
 }
 
-export function runRegisteredTests(): void {
+export async function runRegisteredTests(): Promise<void> {
   const failures: string[] = [];
 
   for (const testCase of testCases) {
     try {
-      testCase.body();
+      await testCase.body();
       console.log(`PASS ${testCase.name}`);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.stack ?? error.message : String(error);

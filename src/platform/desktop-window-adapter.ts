@@ -4,11 +4,20 @@
  * Keeping this contract independent from Tauri prevents animation and behavior
  * modules from learning about native handles, monitors, or IPC command names.
  */
+export interface NativeWindowPosition {
+  readonly physicalX: number;
+  readonly physicalY: number;
+}
+
 export interface DesktopWindowAdapter {
   show(): Promise<void>;
   hide(): Promise<void>;
   setAlwaysOnTop(enabled: boolean): Promise<void>;
   startDragging(): Promise<void>;
+  isDragButtonPressed(): Promise<boolean>;
+  subscribeToWindowMoves(
+    listener: (position: NativeWindowPosition) => void,
+  ): Promise<StopDesktopWindowMoveSubscription>;
   resetToReachablePosition(): Promise<void>;
 }
 
@@ -17,6 +26,7 @@ export type DesktopControlEvent =
   | { readonly kind: "window-visible"; readonly visible: boolean };
 
 export type StopDesktopControlSubscription = () => void;
+export type StopDesktopWindowMoveSubscription = () => void;
 
 /**
  * Native tray actions arrive asynchronously from Rust. The source is a separate
